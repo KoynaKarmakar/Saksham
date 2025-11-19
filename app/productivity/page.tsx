@@ -304,11 +304,6 @@ export default function ProductivityPage() {
     }
   }
 
-  // Toggling done status - uses the specific update handler
-  const handleToggleTask = useCallback(async (taskId: string, currentDone: boolean) => {
-    await handleUpdateTask(taskId, { done: !currentDone });
-  }, [handleUpdateTask]);
-
   // Full update for editing priority/date/text
   const handleUpdateTask = useCallback(async (taskId: string, updates: Partial<Task>) => {
     setTaskError(null);
@@ -325,6 +320,10 @@ export default function ProductivityPage() {
     }
   }, [fetchTasks]);
 
+  // Toggling done status - uses the specific update handler
+  const handleToggleTask = useCallback(async (taskId: string, currentDone: boolean) => {
+    await handleUpdateTask(taskId, { done: !currentDone });
+  }, [handleUpdateTask]);
 
   // DELETE /api/tasks/:id 
   const handleDeleteTask = useCallback(async (taskId: string) => {
