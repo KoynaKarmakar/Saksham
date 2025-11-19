@@ -4,7 +4,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { apiFetch } from '@/lib/api';
-import ClientFormModal from '@/components/ClientFormModal';
 // Assuming ClientFormModal exists in '@/components/ClientFormModal'
 
 // Define the shape of data expected from the backend
@@ -33,13 +32,16 @@ interface FrontendClient {
   lastContact: string; // Mapped and formatted from lastContactDate
 }
 
-// Demo data for widgets and non-client related content (kept local for now)
-const INVOICES = [
-  { client: "Acme Corporation", date: "15/03/2023", amount: "₹3500", status: "Paid" },
-  { client: "Globex Industries", date: "10/03/2023", amount: "₹1200", status: "Pending" },
-  { client: "Stark Enterprises", date: "05/03/2023", amount: "₹5800", status: "Paid" },
-];
+// NEW INTERFACE for fetched invoices
+interface RecentInvoice {
+  client: string; // This will hold the client NAME after mapping
+  date: string; // Formatted Date String
+  amount: number;
+  status: 'Paid' | 'Pending';
+  name: string; // Transaction name/description
+}
 
+// Demo data for widgets and non-client related content (kept local for now)
 const DEADLINES = [
   { project: "Website Redesign", client: "Acme Corporation", date: "15/04/2023" },
   { project: "Mobile App Development", client: "Stark Enterprises", date: "10/04/2023" },
@@ -79,12 +81,19 @@ const mapClientToFrontend = (client: BackendClient): FrontendClient => {
   };
 };
 
+// Utility function to format currency for the frontend
+const formatCurrency = (amount: number): string => {
+  return `₹${amount.toLocaleString('en-IN', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
+};
+
 
 // Main page
 export default function ClientsPage() {
   const { isLoggedIn } = useAuth();
 
   const [clients, setClients] = useState<FrontendClient[]>([]);
+  // ADD NEW STATE HERE:
+  const [invoices, setInvoices] = useState<RecentInvoice[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -103,20 +112,54 @@ export default function ClientsPage() {
   // State for Delete Confirmation (NEW)
   const [isDeleting, setIsDeleting] = useState<string | null>(null); // Stores client _id being deleted
 
-  // --- Data Fetching: GET /api/clients ---
+  // --- Data Fetching: GET /api/clients & GET /api/clients/invoices/recent ---
   const fetchClients = useCallback(async () => {
     if (!isLoggedIn) return;
 
     setLoading(true);
     setError(null);
-    try {
-      const { clients: fetchedClients } = await apiFetch('/clients', { method: 'GET' });
-      const formattedClients = fetchedClients.map(mapClientToFrontend);
 
-      setClients(formattedClients);
+    try {
+      // Fetch both clients and invoices concurrently
+      const [clientsRes, invoicesRes] = await Promise.allSettled([
+        apiFetch('/clients', { method: 'GET' }),
+        apiFetch('/clients/invoices/recent', { method: 'GET' }),
+      ]);
+
+      let fetchedClientsRaw: BackendClient[] = [];
+
+      // Handle clients result
+      if (clientsRes.status === 'fulfilled') {
+        fetchedClientsRaw = clientsRes.value.clients;
+        const formattedClients = fetchedClientsRaw.map(mapClientToFrontend);
+        setClients(formattedClients);
+      } else {
+        console.error("Failed clients:", clientsRes.reason);
+      }
+
+      // Handle invoices result
+      if (invoicesRes.status === 'fulfilled') {
+        // Create a map to quickly find client names by ID
+        const clientNameMap = new Map<string, string>(
+          fetchedClientsRaw.map(c => [c._id.toString(), c.name])
+        );
+
+        const formattedInvoices: RecentInvoice[] = invoicesRes.value.invoices.map((inv: any) => ({
+          ...inv,
+          // Replace client ID with client name
+          client: clientNameMap.get(inv.client) || 'Unknown Client',
+          date: new Date(inv.date).toLocaleDateString('en-GB'), // Format date
+          amount: Math.abs(inv.amount),
+        }));
+
+        setInvoices(formattedInvoices);
+      } else {
+        console.error("Failed invoices:", invoicesRes.reason);
+      }
+
     } catch (err) {
-      console.error("Failed to fetch clients:", err);
-      setError("Failed to load clients. Please check your connection.");
+      // Catch-all for fatal errors during fetching
+      setError("Failed to load data. Please check your network and server logs.");
     } finally {
       setLoading(false);
     }
@@ -138,6 +181,7 @@ export default function ClientsPage() {
 
       setClients(prev => [...prev, mapClientToFrontend(newClient)]);
       setIsModalOpen(false);
+      await fetchClients(); // Re-fetch to ensure all components/widgets are updated
     } catch (err: any) {
       setModalError(err.message || "An unknown error occurred while adding the client.");
     } finally {
@@ -163,6 +207,7 @@ export default function ClientsPage() {
 
       // If the deleted client was expanded, collapse the details
       setExpandIdx(null);
+      await fetchClients(); // Re-fetch to ensure invoices/widgets are updated
 
     } catch (err: any) {
       setError(err.message || "Failed to delete client.");
@@ -206,7 +251,15 @@ export default function ClientsPage() {
   return (
     <div className="min-h-screen bg-[#18141e] text-white px-0">
 
-      <ClientFormModal isOpen={isModalOpen} onClose={() => setIsModalOpen(false)} onSubmit={handleAddClientSubmit} loading={modalLoading} error={modalError} />
+      {/* Client Modal Integration (Requires '@/components/ClientFormModal') */}
+      {/* Assuming ClientFormModal is available as defined in the previous step's thoughts */}
+      {/* <ClientFormModal 
+        isOpen={isModalOpen}
+        onClose={() => setIsModalOpen(false)}
+        onSubmit={handleAddClientSubmit}
+        loading={modalLoading}
+        error={modalError}
+      /> */}
 
       <main className="max-w-[1400px] mx-auto w-full px-7 pb-10">
         {/* Error Display */}
@@ -394,18 +447,26 @@ export default function ClientsPage() {
             </div>
             <div className="py-5 px-6">
               {widgetTab === 'invoices' ? (
-                INVOICES.map((inv, i) => (
-                  <div key={i} className="flex justify-between py-2 border-b border-[#29253b] last:border-b-0">
-                    <div>
-                      <div className="font-semibold">{inv.client}</div>
-                      <div className="text-xs text-gray-400">{inv.date}</div>
+                // Use the live 'invoices' array instead of the static 'INVOICES'
+                invoices.length === 0 ? (
+                  <div className="text-center p-3 text-gray-400 italic">No recent paid invoices found.</div>
+                ) : (
+                  invoices.map((inv, i) => (
+                    <div key={i} className="flex justify-between py-2 border-b border-[#29253b] last:border-b-0">
+                      <div>
+                        {/* Display Transaction Name */}
+                        <div className="font-semibold">{inv.name}</div>
+                        {/* Display Client Name and Date */}
+                        <div className="text-xs text-gray-400">{inv.client} - {inv.date}</div>
+                      </div>
+                      <div className="flex flex-col items-end">
+                        {/* Display formatted amount */}
+                        <span className={`font-bold text-lg text-green-400`}>{formatCurrency(inv.amount)}</span>
+                        <span className={`text-xs ${inv.status === "Paid" ? "text-green-400" : "text-yellow-400"}`}>{inv.status}</span>
+                      </div>
                     </div>
-                    <div className="flex flex-col items-end">
-                      <span className={`font-bold text-lg ${inv.status === "Paid" ? "text-green-400" : "text-yellow-400"}`}>{inv.amount}</span>
-                      <span className={`text-xs ${inv.status === "Paid" ? "text-green-400" : "text-yellow-400"}`}>{inv.status}</span>
-                    </div>
-                  </div>
-                ))
+                  ))
+                )
               ) : (
                 DEADLINES.map((d, i) => (
                   <div key={i} className="flex justify-between py-2 border-b border-[#29253b] last:border-b-0">

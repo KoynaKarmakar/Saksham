@@ -63,19 +63,27 @@ export const apiFetch = async (
             return null;
         }
 
+        // CHECK 1: If status is non-2xx AND the response is NOT JSON (e.g., HTML error page), throw a clean error.
+        const contentType = response.headers.get('content-type');
+        if (!response.ok && (!contentType || !contentType.includes('application/json'))) {
+            // This covers the HTML error page case, preventing the JSON parsing error.
+            throw { message: `Authentication Failed or Internal Server Error (${response.status})` };
+        }
+
+        // If we reach here, we expect JSON.
         const data = await response.json();
 
         if (!response.ok) {
-            // Throw the response body as an error for easier handling in components
+            // Throw the response body (which is a JSON error object from the API)
             throw data;
         }
 
         return data;
     } catch (error) {
         if (error instanceof TypeError) {
-            // Network error or inability to parse JSON
-            throw { message: 'Network or internal server error.' };
+            // Network error (e.g., server offline) or unhandled JSON parsing
+            throw { message: 'Network connection failed or server is offline.' };
         }
-        throw error; // Re-throw API error response body
+        throw error; // Re-throw the structured API error or the custom error above
     }
 };
