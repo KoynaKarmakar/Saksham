@@ -10,8 +10,8 @@ import { PUT as updateTaskHandler, DELETE as deleteTaskHandler } from '../app/ap
 import { GET as getEventsHandler, POST as createEventHandler } from '../app/api/events/route';
 import { PUT as updateEventHandler, DELETE as deleteEventHandler } from '../app/api/events/[id]/route';
 
-
-// Mock simulateHandler is assumed to be available
+// FIX: Import simulateHandler from jest.setup.ts
+import { simulateHandler } from '../jest.setup';
 
 describe('Task and Event CRUD Endpoints (UX Enhancements)', () => {
     let userToken: string;

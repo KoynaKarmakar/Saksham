@@ -7,7 +7,8 @@ import { generateToken } from '../lib/utils/auth';
 import { POST as createClientHandler, GET as getClientsListHandler } from '../app/api/clients/route';
 import { GET as getClientHandler, PUT as updateClientHandler, DELETE as deleteClientHandler } from '../app/api/clients/[id]/route';
 
-// Mock simulateHandler is assumed to be available
+// FIX: Import simulateHandler from jest.setup.ts
+import { simulateHandler } from '../jest.setup';
 
 describe('Client CRUD Endpoints', () => {
     let user1: any;

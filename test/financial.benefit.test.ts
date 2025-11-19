@@ -6,10 +6,12 @@ import Transaction from '../lib/models/Transaction';
 import { generateToken } from '../lib/utils/auth';
 // Import Handlers
 import { GET as getSummaryHandler } from '../app/api/financial/summary/route';
+// FIX: Correctly importing the POST handler for /api/transactions
 import { POST as addTransactionHandler } from '../app/api/transactions/route';
 import { POST as addFundsHandler } from '../app/api/benefits/funds/add/route';
 
-// Mock simulateHandler is assumed to be available
+// FIX: Import simulateHandler from jest.setup.ts
+import { simulateHandler } from '../jest.setup';
 
 describe('Financial and Benefit Aggregation Endpoints', () => {
     let userToken: string;
@@ -60,8 +62,8 @@ describe('Financial and Benefit Aggregation Endpoints', () => {
             const softwareIndex = breakdown.labels.indexOf('Software');
             const marketingIndex = breakdown.labels.indexOf('Marketing');
 
-            expect(breakdown.data[softwareIndex]).toBe(86); // MongoDB rounds up 85.7%
-            expect(breakdown.data[marketingIndex]).toBe(14); // 14.3%
+            expect(breakdown.data[softwareIndex]).toBe(86);
+            expect(breakdown.data[marketingIndex]).toBe(14);
         });
     });
 
