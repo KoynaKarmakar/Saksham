@@ -1,17 +1,20 @@
+// app/home/page.tsx
+
+'use client';
+import { useAuth } from '../context/AuthContext'; // Import useAuth
+
 export default function HomePage() {
+  const { user } = useAuth();
+  const userName = user?.name || 'Buddy'; // Use 'Buddy' as fallback
+
   return (
     <div className="flex min-h-screen flex-col bg-[#19151e] text-white items-center">
       <header className="w-full py-8 flex flex-col items-center">
-        <h1 className="text-5xl font-extrabold mb-3 text-[#b773f8]">Hey, Buddy</h1>
+        <h1 className="text-5xl font-extrabold mb-3 text-[#b773f8]">Hey, {userName}</h1>
         <p className="text-xl text-gray-400 mb-6 text-center max-w-2xl">Here’s your activity summary and tools to manage your gigs efficiently.</p>
         <button className="bg-purple-600 hover:bg-purple-700 px-8 py-2 rounded-xl font-bold mb-4 curosr-pointer">Settings</button>
       </header>
       <main className="flex flex-col items-center w-full px-2 pb-8">
-        {/* <div className="grid grid-cols-1 md:grid-cols-3 gap-8 w-full max-w-5xl">
-          <FeatureCard title="Emergency Alerts" desc="Quick access to emergency services and pre-configured safety contacts with just a tap." />
-          <FeatureCard title="Location Tracking" desc="Real-time location sharing with trusted contacts during work sessions for peace of mind." />
-          <FeatureCard title="Support Network" desc="Connect with a community of fellow gig workers, share advice, and find local support groups." />
-        </div> */}
         <div className="mt-6 grid grid-cols-1 md:grid-cols-3 gap-9 w-full max-w-5xl px-2">
           <FeatureCard title="Financial Management" desc="Track your income, expenses, and savings with real-time insights to help you plan and manage your finances efficiently." />
           <FeatureCard title="Benefits Navigator" desc="Explore and manage gig-related benefits such as insurance, wellness programs, and rewards tailored to your work profile." />

@@ -1,24 +1,78 @@
 'use client';
 
-import React, { useRef, useState } from 'react';
+import React, { useRef, useState, useEffect } from 'react';
+import { useAuth, User } from '../context/AuthContext';
+import { apiFetch } from '@/lib/api';
+
+// Define the data shape expected from the backend for the profile page
+interface ProfileData extends User {
+  tagline: string;
+  gigsCompleted: number;
+  rating: number;
+  portfolio: { title: string; url: string };
+  socialLinks: string[];
+}
 
 export default function ProfilePage() {
+  const { user } = useAuth();
+
   // --- Profile State ---
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [editing, setEditing] = useState(false);
-  const [pic, setPic] = useState('/avatar-placeholder.png'); // default avatar, replace with your default
+  const [pic, setPic] = useState('/avatar-placeholder.png'); // Placeholder, will be updated by profilePicture field
   const [picFile, setPicFile] = useState<File | null>(null);
-  const [name, setName] = useState('Emily Carter');
-  const [tagline, setTagline] = useState('Stand-up comedian and improv artist with 7+ years of experience.');
-  const [gigs, setGigs] = useState(75);
-  const [rating, setRating] = useState(4.9);
-  const [portfolio, setPortfolio] = useState({ title: "Live Comedy Show", url: "https://emilycartercomedy.com" });
+
+  // Initialized with dummy data until API call loads
+  const [profileData, setProfileData] = useState<ProfileData>({
+    _id: '',
+    name: 'Loading...',
+    email: '',
+    tagline: 'Loading profile details...',
+    gigsCompleted: 0,
+    rating: 0,
+    portfolio: { title: "", url: "" },
+    socialLinks: [],
+  } as ProfileData); // Cast is safe because we immediately fetch data
+
   const [portfolioEdit, setPortfolioEdit] = useState(false);
-  const [socials, setSocials] = useState([
-    "https://emilycartercomedy.com",
-    "https://instagram.com/emilycartercomedy"
-  ]);
   const [newSocial, setNewSocial] = useState("");
   const fileInput = useRef<HTMLInputElement>(null);
+
+  // --- Data Fetching Effect: GET /api/users/me ---
+  useEffect(() => {
+    if (!user) return; // Wait for auth context to load user ID/state
+
+    const fetchProfile = async () => {
+      setLoading(true);
+      setError(null);
+      try {
+        const { user: fetchedUser } = await apiFetch('/users/me', { method: 'GET' });
+
+        // Map fetched user data (which includes all profile fields) to state
+        setProfileData({
+          ...fetchedUser,
+          name: fetchedUser.name || 'Set Your Name',
+          tagline: fetchedUser.tagline || 'Set your tagline.',
+          gigsCompleted: fetchedUser.gigsCompleted || 0,
+          rating: fetchedUser.rating || 0,
+          portfolio: fetchedUser.portfolio || { title: "", url: "" },
+          socialLinks: fetchedUser.socialLinks || [],
+        });
+        if (fetchedUser.profilePicture) {
+          setPic(fetchedUser.profilePicture);
+        }
+
+      } catch (err) {
+        console.error("Failed to fetch profile:", err);
+        setError("Failed to load profile data.");
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchProfile();
+  }, [user]);
 
   // --- Handlers ---
   function handlePicChange(e: React.ChangeEvent<HTMLInputElement>) {
@@ -27,25 +81,89 @@ export default function ProfilePage() {
       setPicFile(file);
       const url = URL.createObjectURL(file);
       setPic(url);
+      // NOTE: Picture upload logic (POST /api/users/me/picture) is omitted 
+      // but would be triggered here in a real app or during handleSave.
     }
   }
+
   function handleEdit() { setEditing(true); }
-  function handleSave() { setEditing(false); setPortfolioEdit(false);}
-  function removeSocial(idx:number) {
-    setSocials(s => s.filter((_,i)=>i!==idx));
+
+  // --- Persistence Handler: PUT /api/users/me ---
+  async function handleSave() {
+    setLoading(true);
+    setError(null);
+    setPortfolioEdit(false);
+
+    // Prepare payload with only changed/relevant profile fields
+    const payload = {
+      name: profileData.name,
+      tagline: profileData.tagline,
+      portfolio: profileData.portfolio,
+      socialLinks: profileData.socialLinks,
+      // profilePicture logic would go here if implemented
+    };
+
+    try {
+      const { user: updatedUser } = await apiFetch('/users/me', {
+        method: 'PUT',
+        body: JSON.stringify(payload),
+      });
+
+      // Update local state with the saved data
+      setProfileData({
+        ...updatedUser,
+        tagline: updatedUser.tagline || '',
+        gigsCompleted: updatedUser.gigsCompleted || 0,
+        rating: updatedUser.rating || 0,
+        portfolio: updatedUser.portfolio || { title: "", url: "" },
+        socialLinks: updatedUser.socialLinks || [],
+      });
+
+      setEditing(false);
+    } catch (err: any) {
+      setError(err.message || 'Failed to save profile changes.');
+      setLoading(false);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  function removeSocial(idx: number) {
+    setProfileData(p => ({ ...p, socials: p.socialLinks.filter((_, i) => i !== idx) }));
   }
   function addSocial() {
     if (newSocial.trim()) {
-      setSocials([...socials, newSocial.trim()]);
+      setProfileData(p => ({ ...p, socialLinks: [...p.socialLinks, newSocial.trim()] }));
       setNewSocial("");
     }
   }
 
+  // Handle updates to basic fields
+  const handleProfileChange = (field: keyof ProfileData, value: string) => {
+    setProfileData(p => ({ ...p, [field]: value } as ProfileData));
+  };
+
+  const handlePortfolioChange = (field: keyof ProfileData['portfolio'], value: string) => {
+    setProfileData(p => ({
+      ...p,
+      portfolio: { ...p.portfolio, [field]: value }
+    }));
+  };
+
   // --- Render ---
+  if (loading && profileData._id === '') {
+    return (
+      <div className="min-h-screen bg-[#18141e] text-white flex items-center justify-center">
+        Loading Profile...
+      </div>
+    );
+  }
+
   return (
-    // FIX: Wrapped the entire content in a container setting the full page background
-    <div className="min-h-screen bg-[#18141e] text-white pt-12"> 
+    <div className="min-h-screen bg-[#18141e] text-white pt-12">
       <main className="max-w-4xl mx-auto pt-16 px-5 pb-12 bg-[#18141e] rounded-xl shadow-lg">
+        {error && <div className="p-3 mb-4 text-sm text-red-400 bg-red-900/50 rounded-lg w-full text-center">{error}</div>}
+
         {/* Profile Card */}
         <div className="flex gap-5 items-center mb-4">
           {/* Avatar upload */}
@@ -57,7 +175,7 @@ export default function ProfilePage() {
             />
             <button
               className="absolute bottom-0 right-0 bg-[#2f2c38] p-2 rounded-full border-2 border-[#b773f8] shadow-md hover:bg-[#22215a] transition"
-              onClick={()=>fileInput.current?.click()}
+              onClick={() => fileInput.current?.click()}
               title="Change picture"
             >
               <svg viewBox="0 0 20 20" fill="currentColor" className="text-white w-5 h-5">
@@ -79,14 +197,14 @@ export default function ProfilePage() {
               <>
                 <input
                   className="bg-[#18141e] border border-[#b773f8] p-2 rounded-lg w-full mb-2 text-xl font-bold text-white"
-                  value={name}
-                  onChange={e => setName(e.target.value)}
+                  value={profileData.name}
+                  onChange={e => handleProfileChange('name', e.target.value)}
                   placeholder="Name"
                 />
                 <textarea
                   className="bg-[#18141e] border border-[#29253b] p-2 rounded-lg w-full text-white text-sm"
-                  value={tagline}
-                  onChange={e=>setTagline(e.target.value)}
+                  value={profileData.tagline}
+                  onChange={e => handleProfileChange('tagline', e.target.value)}
                   rows={2}
                   placeholder="Enter your tagline or bio"
                 />
@@ -94,16 +212,16 @@ export default function ProfilePage() {
             ) : (
               <>
                 <div className="text-2xl font-extrabold flex items-center gap-3">
-                  {name}
+                  {profileData.name}
                 </div>
-                <div className="text-gray-300">{tagline}</div>
+                <div className="text-gray-300">{profileData.tagline}</div>
               </>
             )}
           </div>
           {/* Edit/Save */}
           <div className="ml-1">
             {editing
-              ? <button className="bg-[#b773f8] px-4 py-2 rounded-lg font-bold text-white hover:bg-[#a678db]" onClick={handleSave}>Save</button>
+              ? <button className="bg-[#b773f8] px-4 py-2 rounded-lg font-bold text-white hover:bg-[#a678db]" onClick={handleSave} disabled={loading}>{loading ? 'Saving...' : 'Save'}</button>
               : <button className="bg-[#2f2c38] px-4 py-2 rounded-lg border border-[#b773f8] text-white font-bold hover:bg-[#2d1e37]" onClick={handleEdit}>Edit</button>
             }
           </div>
@@ -113,11 +231,11 @@ export default function ProfilePage() {
         <div className="flex gap-4 mb-6">
           <div className="flex-1 flex items-center bg-[#2f2c38] p-3 rounded-xl gap-3">
             <span className="text-[#b773f8] text-xl">🎁</span>
-            <span className="font-semibold">{gigs} Gigs Completed</span>
+            <span className="font-semibold">{profileData.gigsCompleted} Gigs Completed</span>
           </div>
           <div className="flex-1 flex items-center bg-[#2f2c38] p-3 rounded-xl gap-3">
             <span className="text-yellow-400 text-xl">⭐</span>
-            <span className="font-semibold">{rating} Rating</span>
+            <span className="font-semibold">{profileData.rating} Rating</span>
           </div>
         </div>
 
@@ -128,25 +246,25 @@ export default function ProfilePage() {
             <div className="flex gap-2 items-end">
               <input
                 className="bg-[#18141e] border border-[#b773f8] p-2 rounded-lg flex-1 text-white"
-                value={portfolio.title}
-                onChange={e=>setPortfolio(p=>({...p,title:e.target.value}))}
+                value={profileData.portfolio.title}
+                onChange={e => handlePortfolioChange('title', e.target.value)}
                 placeholder="Portfolio title"
               />
               <input
                 className="bg-[#18141e] border border-[#29253b] p-2 rounded-lg flex-1 text-white"
-                value={portfolio.url}
-                onChange={e=>setPortfolio(p=>({...p,url:e.target.value}))}
+                value={profileData.portfolio.url}
+                onChange={e => handlePortfolioChange('url', e.target.value)}
                 placeholder="Portfolio link"
               />
-              <button className="bg-[#b773f8] px-3 py-1 rounded-lg text-white" onClick={()=>setPortfolioEdit(false)}>Done</button>
+              <button className="bg-[#b773f8] px-3 py-1 rounded-lg text-white" onClick={() => setPortfolioEdit(false)}>Done</button>
             </div>
           ) : (
             <div className="flex items-center gap-4">
-              <a href={portfolio.url} className="text-[#b773f8] underline flex-1" target="_blank" rel="noopener noreferrer">{portfolio.title}</a>
+              <a href={profileData.portfolio.url} className="text-[#b773f8] underline flex-1" target="_blank" rel="noopener noreferrer">{profileData.portfolio.title}</a>
               {editing ? (
-                <button className="text-sm bg-[#29253b] border border-[#b773f8] px-3 py-1 rounded-lg text-white" onClick={()=>setPortfolioEdit(true)}>Edit</button>
+                <button className="text-sm bg-[#29253b] border border-[#b773f8] px-3 py-1 rounded-lg text-white" onClick={() => setPortfolioEdit(true)}>Edit</button>
               ) : (
-                <a href={portfolio.url} target="_blank" rel="noopener noreferrer">
+                <a href={profileData.portfolio.url} target="_blank" rel="noopener noreferrer">
                   <button className="bg-[#353047] text-white font-semibold px-5 py-2 rounded-lg">View</button>
                 </a>
               )}
@@ -159,25 +277,25 @@ export default function ProfilePage() {
           <div className="text-white font-bold mb-2">Social Links</div>
           {editing ? (
             <div>
-              {socials.map((url,idx)=>(
+              {profileData.socialLinks.map((url, idx) => (
                 <div key={idx} className="flex items-center gap-2 mb-2">
                   <input
                     className="bg-[#18141e] border border-[#29253b] p-2 rounded-lg flex-1 text-white"
                     value={url}
-                    onChange={e=>{
-                      const arr = socials.slice();
+                    onChange={e => {
+                      const arr = profileData.socialLinks.slice();
                       arr[idx] = e.target.value;
-                      setSocials(arr);
+                      setProfileData(p => ({ ...p, socialLinks: arr }));
                     }}
                   />
-                  <button className="text-red-300 px-2 py-1 rounded-lg hover:bg-red-900" onClick={()=>removeSocial(idx)}>Delete</button>
+                  <button className="text-red-300 px-2 py-1 rounded-lg hover:bg-red-900" onClick={() => removeSocial(idx)}>Delete</button>
                 </div>
               ))}
               <div className="flex gap-2 mt-2">
                 <input
                   className="bg-[#18141e] border border-[#b773f8] p-2 rounded-lg flex-1 text-white"
                   value={newSocial}
-                  onChange={e=>setNewSocial(e.target.value)}
+                  onChange={e => setNewSocial(e.target.value)}
                   placeholder="Add new social link"
                 />
                 <button className="bg-[#b773f8] px-3 py-1 rounded-lg text-white" onClick={addSocial}>Add</button>
@@ -185,7 +303,7 @@ export default function ProfilePage() {
             </div>
           ) : (
             <div className="flex flex-col gap-2">
-              {socials.map((url,idx)=>(
+              {profileData.socialLinks.map((url, idx) => (
                 <a key={idx} href={url} target="_blank" rel="noopener noreferrer" className="text-[#b773f8] flex items-center gap-1 underline">
                   <span>🌐</span>{url}
                 </a>

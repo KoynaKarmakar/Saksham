@@ -1,10 +1,48 @@
+// app/calculater/page.tsx
+
 'use client';
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
+import { useAuth } from '../context/AuthContext';
+import { apiFetch } from '@/lib/api';
 
 type Tab = 'hourly' | 'project';
 
+// --- Data Structures for Rate Benchmarks ---
+interface RateBenchmark {
+  name: string;
+  rates: { label: string; range: string }[];
+}
+
 export default function RateCalculatorPage() {
+  const { isLoggedIn } = useAuth();
   const [tab, setTab] = useState<Tab>('hourly');
+  const [benchmarks, setBenchmarks] = useState<RateBenchmark[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  // --- Data Fetching for Benchmarks: GET /api/network/catalog ---
+  useEffect(() => {
+    if (!isLoggedIn) {
+      setLoading(false);
+      return;
+    }
+    const fetchBenchmarks = async () => {
+      setLoading(true);
+      setError(null);
+      try {
+        // Fetch the catalog (which now includes rateBenchmarks)
+        const { catalog } = await apiFetch('/network/catalog', { method: 'GET' });
+        setBenchmarks(catalog.rateBenchmarks || []);
+      } catch (err) {
+        console.error("Failed to fetch benchmarks:", err);
+        setError("Failed to load rate benchmarks.");
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchBenchmarks();
+  }, [isLoggedIn]);
 
   return (
     <div className="min-h-screen bg-[#18141e] text-white px-0">
@@ -20,21 +58,19 @@ export default function RateCalculatorPage() {
         <div className="flex border-b border-[#29253b] mt-7 mb-5">
           <button
             onClick={() => setTab('hourly')}
-            className={`px-6 py-3 font-bold text-sm ${
-              tab === 'hourly'
+            className={`px-6 py-3 font-bold text-sm ${tab === 'hourly'
                 ? 'text-[#b773f8] border-b-2 border-[#b773f8]'
                 : 'text-gray-300'
-            }`}
+              }`}
           >
             Hourly Rate
           </button>
           <button
             onClick={() => setTab('project')}
-            className={`px-6 py-3 font-bold text-sm ${
-              tab === 'project'
+            className={`px-6 py-3 font-bold text-sm ${tab === 'project'
                 ? 'text-[#b773f8] border-b-2 border-[#b773f8]'
                 : 'text-gray-300'
-            }`}
+              }`}
           >
             Project Rate
           </button>
@@ -44,16 +80,22 @@ export default function RateCalculatorPage() {
           {tab === "hourly" ? <HourlyCalculator /> : <ProjectCalculator />}
         </div>
 
-        {/* Rates by Field - This appears below */}
+        {/* Rates by Field - Integrates fetched data */}
         <div className="mt-14">
-          <RatesByField />
+          {loading ? (
+            <div className="text-gray-400 text-center">Loading rate benchmarks...</div>
+          ) : error ? (
+            <div className="text-red-400 text-center">{error}</div>
+          ) : (
+            <RatesByField FIELDS={benchmarks} />
+          )}
         </div>
       </main>
     </div>
   );
 }
 
-/* ---- Calculator Components Below ---- */
+/* ---- Calculator Components Below (Unchanged) ---- */
 
 // HOURLY CALCULATOR
 function HourlyCalculator() {
@@ -128,7 +170,7 @@ type HourlyResultsProps = {
   details: any;
   err: string;
 };
-function HourlyResults({ result, details, err }: HourlyResultsProps){
+function HourlyResults({ result, details, err }: HourlyResultsProps) {
   return (
     <div className="bg-[#201c2c] rounded-xl p-7 shadow-lg flex flex-col h-full">
       <div className="font-bold text-lg mb-2">Your Results</div>
@@ -294,58 +336,8 @@ function ProjectResults({ result, info, err }: ProjectResultsProps) {
   );
 }
 
-/* ---- Benchmarks Deck Below ---- */
-function RatesByField() {
-  const FIELDS = [
-    {
-      name: "Web Development",
-      rates: [
-        { label: "Beginner", range: "₹600–1,800" },
-        { label: "Intermediate", range: "₹1,800–3,600" },
-        { label: "Expert", range: "₹3,600–7,000+" },
-      ],
-    },
-    {
-      name: "Graphic Design",
-      rates: [
-        { label: "Beginner", range: "₹500–1,300" },
-        { label: "Intermediate", range: "₹1,800–4,300" },
-        { label: "Expert", range: "₹5,500–12,000+" },
-      ],
-    },
-    {
-      name: "Content Writing",
-      rates: [
-        { label: "Beginner", range: "₹400–900" },
-        { label: "Intermediate", range: "₹1,000–2,500" },
-        { label: "Expert", range: "₹2,500–6,000+" },
-      ],
-    },
-    {
-      name: "Digital Marketing",
-      rates: [
-        { label: "Beginner", range: "₹600–1,300" },
-        { label: "Intermediate", range: "₹1,600–3,400" },
-        { label: "Expert", range: "₹3,500–7,000+" },
-      ],
-    },
-    {
-      name: "Video Editing",
-      rates: [
-        { label: "Beginner", range: "₹600–1,700" },
-        { label: "Intermediate", range: "₹1,800–3,800" },
-        { label: "Expert", range: "₹3,900–8,500+" },
-      ],
-    },
-    {
-      name: "Virtual Assistant",
-      rates: [
-        { label: "Beginner", range: "₹400–1,000" },
-        { label: "Intermediate", range: "₹1,100–2,000" },
-        { label: "Expert", range: "₹2,100–3,500+" },
-      ],
-    },
-  ];
+/* ---- Benchmarks Deck Below (Updated to accept props) ---- */
+function RatesByField({ FIELDS }: { FIELDS: RateBenchmark[] }) {
   return (
     <div className="bg-[#201c2c] text-white rounded-xl shadow-lg p-7">
       <div className="text-xl font-bold">Common Hourly Rates by Field</div>
@@ -367,6 +359,9 @@ function RatesByField() {
           </div>
         ))}
       </div>
+      {FIELDS.length === 0 && (
+        <div className="text-gray-500 italic mt-4">No benchmark data available.</div>
+      )}
     </div>
   );
 }

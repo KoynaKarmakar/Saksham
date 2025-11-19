@@ -1,5 +1,7 @@
 'use client';
-import React, { useState } from "react";
+import React, { useState, useEffect, useCallback } from "react";
+import { useAuth } from '../context/AuthContext';
+import { apiFetch } from '@/lib/api';
 
 const tabData = [
   { label: "Health Insurance", value: "health" },
@@ -7,8 +9,76 @@ const tabData = [
   { label: "Emergency Fund", value: "emergency" },
 ];
 
+// Define Data Structures (Matching API Mock)
+interface Plan {
+  name: string;
+  desc: string;
+  price: string;
+  rating: number;
+  reviews: number;
+}
+interface RetirementOption {
+  name: string;
+  desc: string;
+  amount: string;
+}
+
+interface BenefitsCatalog {
+  plans: Array<Plan | RetirementOption>; // Heterogeneous array from mock
+}
+
+
 export default function BenefitsPage() {
+  const { isLoggedIn } = useAuth();
   const [tab, setTab] = useState("health");
+
+  const [catalog, setCatalog] = useState<BenefitsCatalog | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  // --- Data Fetching: GET /api/network/catalog ---
+  useEffect(() => {
+    if (!isLoggedIn) {
+      setLoading(false);
+      return;
+    }
+    const fetchCatalog = async () => {
+      setLoading(true);
+      setError(null);
+      try {
+        const { catalog: fetchedCatalog } = await apiFetch('/network/catalog', { method: 'GET' });
+        setCatalog(fetchedCatalog);
+      } catch (err) {
+        console.error("Failed to fetch catalog:", err);
+        setError("Failed to load benefits catalog.");
+      } finally {
+        setLoading(false);
+      }
+    };
+    fetchCatalog();
+  }, [isLoggedIn]);
+
+
+  // Filter and type assert data for specific sections
+  const healthPlans = (catalog?.plans || []).filter(p => p.hasOwnProperty('price')) as Plan[];
+  const retirementOptions = (catalog?.plans || []).filter(p => p.hasOwnProperty('amount')) as RetirementOption[];
+
+
+  if (loading) {
+    return (
+      <div className="min-h-screen flex flex-col bg-[#18141e] text-white px-0 items-center justify-center">
+        Loading Benefits...
+      </div>
+    );
+  }
+
+  if (error || !catalog) {
+    return (
+      <div className="min-h-screen flex flex-col bg-[#18141e] text-red-400 px-0 items-center justify-center">
+        Error loading data: {error}
+      </div>
+    );
+  }
 
   return (
     <div className="flex min-h-screen flex-col bg-[#18141e] text-white px-0">
@@ -20,20 +90,20 @@ export default function BenefitsPage() {
           </p>
         </div>
 
-        {/* Three Column Top Cards */}
+        {/* Three Column Top Cards (Data is based on status checks/existence) */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-5 py-4">
           <BenefitCard
             icon=""
             title="Health Insurance"
-            desc="Find affordable health insurance plans designed for gig workers."
-            highlight="5 plans recommended for you"
+            desc={`Find affordable health insurance plans designed for gig workers. We found ${healthPlans.length} options.`}
+            highlight={`${healthPlans.length} plans recommended for you`}
             buttonText="Compare Plans"
           />
           <BenefitCard
             icon=""
             title="Retirement Planning"
             desc="Self-employed retirement options to secure your future."
-            highlight="SEP IRA and Solo 401(k) options"
+            highlight={`${retirementOptions.length} self-employment options`}
             buttonText="Explore Options"
           />
           <BenefitCard
@@ -50,11 +120,10 @@ export default function BenefitsPage() {
           {tabData.map((t) => (
             <button
               key={t.value}
-              className={`px-4 py-3 font-semibold text-sm transition-colors duration-200 ${
-                tab === t.value
+              className={`px-4 py-3 font-semibold text-sm transition-colors duration-200 ${tab === t.value
                   ? "text-[#b773f8] border-b-2 border-[#b773f8]"
                   : "text-gray-300"
-              }`}
+                }`}
               onClick={() => setTab(t.value)}
             >
               {t.label}
@@ -62,10 +131,10 @@ export default function BenefitsPage() {
           ))}
         </div>
 
-        {/* Tab Content */}
+        {/* Tab Content - Pass fetched data to sections */}
         <div className="pt-4">
-          {tab === "health" && <HealthInsuranceSection />}
-          {tab === "retirement" && <RetirementSection />}
+          {tab === "health" && <HealthInsuranceSection plans={healthPlans} />}
+          {tab === "retirement" && <RetirementSection options={retirementOptions} />}
           {tab === "emergency" && <EmergencyFundSection />}
         </div>
       </main>
@@ -73,7 +142,7 @@ export default function BenefitsPage() {
   );
 }
 
-/* --- Components Below --- */
+/* --- Components Below (Updated to accept props) --- */
 
 type BenefitCardProps = {
   icon: React.ReactNode;
@@ -95,32 +164,7 @@ function BenefitCard({ icon, title, desc, highlight, buttonText }: BenefitCardPr
 }
 
 
-function HealthInsuranceSection() {
-  // Dummy plans as array
-  const plans = [
-    {
-      name: "Basic Health Plan",
-      desc: "Basic coverage for essential health needs",
-      price: "₹250/month",
-      rating: 4.2,
-      reviews: 128,
-    },
-    {
-      name: "Standard Health Plan",
-      desc: "Comprehensive coverage with dental options",
-      price: "₹350/month",
-      rating: 4.5,
-      reviews: 128,
-    },
-    {
-      name: "Premium Health Plan",
-      desc: "Full coverage including vision and specialists",
-      price: "₹450/month",
-      rating: 4.8,
-      reviews: 128,
-    },
-  ];
-
+function HealthInsuranceSection({ plans }: { plans: Plan[] }) {
   return (
     <div>
       <div className="flex justify-between mb-1">
@@ -130,56 +174,45 @@ function HealthInsuranceSection() {
         </button>
       </div>
       <div className="flex flex-col gap-5 w-full">
-        {plans.map((plan, i) => (
-          <div
-            key={i}
-            className="bg-[#28223b] rounded-xl px-6 py-4 flex flex-col md:flex-row md:items-center justify-between gap-3"
-          >
-            <div>
-              <div className="font-semibold text-lg">{plan.name}</div>
-              <div className="text-gray-300 text-sm mb-2">{plan.desc}</div>
-              <div className="text-yellow-300 flex items-center gap-1 text-sm">
-                {plan.rating}
-                <span>★</span>
-                <span className="text-gray-400">({plan.reviews} reviews)</span>
+        {plans.length === 0 ? (
+          <div className="text-gray-400 italic mt-4">No health plans found in the catalog.</div>
+        ) : (
+          plans.map((plan, i) => (
+            <div
+              key={i}
+              className="bg-[#28223b] rounded-xl px-6 py-4 flex flex-col md:flex-row md:items-center justify-between gap-3"
+            >
+              <div>
+                <div className="font-semibold text-lg">{plan.name}</div>
+                <div className="text-gray-300 text-sm mb-2">{plan.desc || 'No description provided.'}</div>
+                <div className="text-yellow-300 flex items-center gap-1 text-sm">
+                  {plan.rating}
+                  <span>★</span>
+                  <span className="text-gray-400">({plan.reviews || 'N/A'} reviews)</span>
+                </div>
+              </div>
+              <div className="flex flex-col items-end gap-2">
+                <div className="text-[#b773f8] font-bold text-md">{plan.price}</div>
+                <button className="bg-[#b773f8] text-black rounded-md px-4 py-2 text-sm font-semibold">
+                  View Details
+                </button>
               </div>
             </div>
-            <div className="flex flex-col items-end gap-2">
-              <div className="text-[#b773f8] font-bold text-md">{plan.price}</div>
-              <button className="bg-[#b773f8] text-black rounded-md px-4 py-2 text-sm font-semibold">
-                View Details
-              </button>
-            </div>
-          </div>
-        ))}
+          ))
+        )}
       </div>
-      <div className="flex justify-center mt-6">
-        <button className="bg-[#b773f8] px-7 py-2 rounded-lg font-semibold text-black flex items-center gap-2">
-          Browse All Plans <span>→</span>
-        </button>
-      </div>
+      {plans.length > 0 && (
+        <div className="flex justify-center mt-6">
+          <button className="bg-[#b773f8] px-7 py-2 rounded-lg font-semibold text-black flex items-center gap-2">
+            Browse All Plans <span>→</span>
+          </button>
+        </div>
+      )}
     </div>
   );
 }
 
-function RetirementSection() {
-  const options = [
-    {
-      name: "Solo 401(k)",
-      desc: "High contribution limits, good for high earners",
-      amount: "₹66,000/year",
-    },
-    {
-      name: "SEP IRA",
-      desc: "Simple to set up, flexible contributions",
-      amount: "25% of net income",
-    },
-    {
-      name: "Traditional/Roth IRA",
-      desc: "Lower limits but easy to start",
-      amount: "₹6,500/year",
-    },
-  ];
+function RetirementSection({ options }: { options: RetirementOption[] }) {
   return (
     <div>
       <div className="bg-[#28223b] rounded-xl px-6 py-4 mb-4">
@@ -190,20 +223,26 @@ function RetirementSection() {
           Without employer-sponsored plans, it's essential to set up your own retirement savings strategy.
         </div>
       </div>
-      {options.map((r, idx) => (
-        <div key={idx} className="bg-[#28223b] rounded-xl px-6 py-4 mb-4 flex items-center justify-between">
-          <div>
-            <div className="font-bold text-lg mb-1">{r.name}</div>
-            <div className="text-gray-300 text-sm">{r.desc}</div>
+
+      {options.length === 0 ? (
+        <div className="text-gray-400 italic mt-4">No retirement options found in the catalog.</div>
+      ) : (
+        options.map((r, idx) => (
+          <div key={idx} className="bg-[#28223b] rounded-xl px-6 py-4 mb-4 flex items-center justify-between">
+            <div>
+              <div className="font-bold text-lg mb-1">{r.name}</div>
+              <div className="text-gray-300 text-sm">{r.desc}</div>
+            </div>
+            <div className="flex flex-col items-end gap-2">
+              <div className="text-[#b773f8] font-bold">{r.amount}</div>
+              <button className="bg-[#b773f8] text-white rounded-md px-4 py-2 text-sm font-semibold">
+                Learn More
+              </button>
+            </div>
           </div>
-          <div className="flex flex-col items-end gap-2">
-            <div className="text-[#b773f8] font-bold">{r.amount}</div>
-            <button className="bg-[#b773f8] text-white rounded-md px-4 py-2 text-sm font-semibold">
-              Learn More
-            </button>
-          </div>
-        </div>
-      ))}
+        ))
+      )}
+
       <div className="flex justify-center mt-4">
         <button className="bg-[#b773f8] px-7 py-2 rounded-lg font-semibold text-white w-full">Talk to a Retirement Specialist</button>
       </div>
@@ -220,7 +259,7 @@ function EmergencyFundSection() {
           <span className="text-2xl font-extrabold mb-1">₹3,500</span>
           <span className="text-gray-400 text-sm mb-2">of ₹10,000 goal</span>
           <div className="h-3 w-full rounded bg-[#392955] mb-2">
-            <div className="h-3 rounded bg-[#b773f8]" style={{width: "35%"}} />
+            <div className="h-3 rounded bg-[#b773f8]" style={{ width: "35%" }} />
           </div>
           <span className="text-[#b773f8] self-end font-bold">35%</span>
           <button className="bg-[#b773f8] mt-4 py-2 rounded-md text-white">Add Funds</button>
@@ -230,7 +269,7 @@ function EmergencyFundSection() {
           <span className="text-2xl font-extrabold mb-1">₹1,200</span>
           <span className="text-gray-400 text-sm mb-2">of ₹5,000 goal</span>
           <div className="h-3 w-full rounded bg-[#392955] mb-2">
-            <div className="h-3 rounded bg-[#b773f8]" style={{width: "24%"}} />
+            <div className="h-3 rounded bg-[#b773f8]" style={{ width: "24%" }} />
           </div>
           <span className="text-[#b773f8] self-end font-bold">24%</span>
           <button className="bg-[#b773f8] mt-4 py-2 rounded-md text-white">Add Funds</button>
