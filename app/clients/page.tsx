@@ -4,6 +4,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { apiFetch } from '@/lib/api';
+import ClientFormModal from '@/components/ClientFormModal';
 // Assuming ClientFormModal exists in '@/components/ClientFormModal'
 
 // Define the shape of data expected from the backend
@@ -205,15 +206,7 @@ export default function ClientsPage() {
   return (
     <div className="min-h-screen bg-[#18141e] text-white px-0">
 
-      {/* Client Modal Integration (Requires '@/components/ClientFormModal') */}
-      {/* Assuming ClientFormModal is available as defined in the previous step's thoughts */}
-      {/* <ClientFormModal 
-        isOpen={isModalOpen}
-        onClose={() => setIsModalOpen(false)}
-        onSubmit={handleAddClientSubmit}
-        loading={modalLoading}
-        error={modalError}
-      /> */}
+      <ClientFormModal isOpen={isModalOpen} onClose={() => setIsModalOpen(false)} onSubmit={handleAddClientSubmit} loading={modalLoading} error={modalError} />
 
       <main className="max-w-[1400px] mx-auto w-full px-7 pb-10">
         {/* Error Display */}
