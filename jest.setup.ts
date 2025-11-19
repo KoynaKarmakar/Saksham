@@ -26,10 +26,9 @@ afterAll(async () => {
     }
 });
 
-// --- simulateHandler utility (Used across all test files) ---
-// Note: You must place this utility in a globally accessible file or import it in each test file.
+// --- simulateHandler utility (FIXED: Added 'export' keyword) ---
 /** Helper to simulate Next.js route handler input and parse JSON output */
-const simulateHandler = async (handler: Function, method: string, url: string, body?: any, token?: string) => {
+export const simulateHandler = async (handler: Function, method: string, url: string, body?: any, token?: string) => {
     const headers = new Headers();
     headers.set('Content-Type', 'application/json');
     if (token) {
