@@ -1,3 +1,5 @@
+// app/benefits/page.tsx
+
 'use client';
 import React, { useState, useEffect, useCallback } from "react";
 import { useAuth } from '../context/AuthContext';
@@ -9,7 +11,7 @@ const tabData = [
   { label: "Emergency Fund", value: "emergency" },
 ];
 
-// Define Data Structures (Matching API Mock)
+// Define Data Structures (Matching API Mock and Live Fund)
 interface Plan {
   name: string;
   desc: string;
@@ -23,9 +25,20 @@ interface RetirementOption {
   amount: string;
 }
 
-interface BenefitsCatalog {
-  plans: Array<Plan | RetirementOption>; // Heterogeneous array from mock
+interface FundBalance {
+  _id?: string;
+  type: 'EmergencyFund' | 'PaidLeaveFund';
+  currentAmount: number;
+  goalAmount: number;
 }
+
+interface BenefitsCatalog {
+  plans: Array<Plan | RetirementOption>;
+}
+
+const formatCurrency = (amount: number): string => {
+  return `₹${Math.abs(amount).toLocaleString('en-IN', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
+};
 
 
 export default function BenefitsPage() {
@@ -33,36 +46,92 @@ export default function BenefitsPage() {
   const [tab, setTab] = useState("health");
 
   const [catalog, setCatalog] = useState<BenefitsCatalog | null>(null);
+  const [fundBalances, setFundBalances] = useState<FundBalance[] | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  // --- Data Fetching: GET /api/network/catalog ---
-  useEffect(() => {
+  // --- Data Fetching ---
+
+  const fetchFundBalances = useCallback(async () => {
+    try {
+      const { funds } = await apiFetch('/benefits/funds', { method: 'GET' });
+      setFundBalances(funds);
+    } catch (err) {
+      console.error("Failed to fetch fund balances:", err);
+      setError("Failed to load fund balances.");
+    }
+  }, []);
+
+  const fetchCatalogAndFunds = useCallback(async () => {
     if (!isLoggedIn) {
       setLoading(false);
       return;
     }
-    const fetchCatalog = async () => {
-      setLoading(true);
-      setError(null);
-      try {
-        const { catalog: fetchedCatalog } = await apiFetch('/network/catalog', { method: 'GET' });
-        setCatalog(fetchedCatalog);
-      } catch (err) {
-        console.error("Failed to fetch catalog:", err);
-        setError("Failed to load benefits catalog.");
-      } finally {
-        setLoading(false);
+    setLoading(true);
+    setError(null);
+
+    await Promise.allSettled([
+      (async () => {
+        try {
+          const { catalog: fetchedCatalog } = await apiFetch('/network/catalog', { method: 'GET' });
+          setCatalog(fetchedCatalog);
+        } catch (err) {
+          console.error("Failed to fetch catalog:", err);
+          setError("Failed to load benefits catalog.");
+        }
+      })(),
+      fetchFundBalances(), // Fetch funds
+    ]);
+
+    setLoading(false);
+  }, [isLoggedIn, fetchFundBalances]);
+
+  useEffect(() => {
+    fetchCatalogAndFunds();
+  }, [fetchCatalogAndFunds]);
+
+  // --- Fund Contribution Handler ---
+
+  const handleContribute = async (fundType: FundBalance['type']) => {
+    const amountStr = prompt(`Enter amount to contribute to ${fundType === 'EmergencyFund' ? 'Emergency Fund' : 'Paid Leave Fund'}:`);
+    const amount = amountStr ? parseFloat(amountStr) : NaN;
+
+    if (isNaN(amount) || amount <= 0) {
+      if (amountStr !== null && amountStr !== '') {
+        alert("Please enter a valid positive amount.");
       }
-    };
-    fetchCatalog();
-  }, [isLoggedIn]);
+      return;
+    }
+
+    setLoading(true);
+
+    try {
+      // POST to backend to add funds
+      await apiFetch('/benefits/funds/add', {
+        method: 'POST',
+        body: JSON.stringify({ type: fundType, amount: amount }),
+      });
+
+      alert("Funds contributed successfully!");
+
+      // Re-fetch funds to update UI with new balances
+      await fetchFundBalances();
+
+    } catch (err: any) {
+      alert(`Contribution failed: ${err.message || "Server error."}`);
+      console.error("Contribution error:", err);
+    } finally {
+      setLoading(false);
+    }
+  };
 
 
   // Filter and type assert data for specific sections
   const healthPlans = (catalog?.plans || []).filter(p => p.hasOwnProperty('price')) as Plan[];
   const retirementOptions = (catalog?.plans || []).filter(p => p.hasOwnProperty('amount')) as RetirementOption[];
 
+  const emergencyFund = fundBalances?.find(f => f.type === 'EmergencyFund');
+  const paidLeaveFund = fundBalances?.find(f => f.type === 'PaidLeaveFund');
 
   if (loading) {
     return (
@@ -90,7 +159,7 @@ export default function BenefitsPage() {
           </p>
         </div>
 
-        {/* Three Column Top Cards (Data is based on status checks/existence) */}
+        {/* Three Column Top Cards (Unchanged UI) */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-5 py-4">
           <BenefitCard
             icon=""
@@ -135,15 +204,18 @@ export default function BenefitsPage() {
         <div className="pt-4">
           {tab === "health" && <HealthInsuranceSection plans={healthPlans} />}
           {tab === "retirement" && <RetirementSection options={retirementOptions} />}
-          {tab === "emergency" && <EmergencyFundSection />}
+          {tab === "emergency" && <EmergencyFundSection
+            emergencyFund={emergencyFund}
+            paidLeaveFund={paidLeaveFund}
+            handleContribute={handleContribute}
+          />}
         </div>
       </main>
     </div>
   );
 }
 
-/* --- Components Below (Updated to accept props) --- */
-
+// Reusable components (Unchanged UI)
 type BenefitCardProps = {
   icon: React.ReactNode;
   title: string;
@@ -165,6 +237,7 @@ function BenefitCard({ icon, title, desc, highlight, buttonText }: BenefitCardPr
 
 
 function HealthInsuranceSection({ plans }: { plans: Plan[] }) {
+  // ... (unchanged)
   return (
     <div>
       <div className="flex justify-between mb-1">
@@ -213,7 +286,8 @@ function HealthInsuranceSection({ plans }: { plans: Plan[] }) {
 }
 
 function RetirementSection({ options }: { options: RetirementOption[] }) {
-  return (
+  // ... (unchanged)
+  const content = (
     <div>
       <div className="bg-[#28223b] rounded-xl px-6 py-4 mb-4">
         <div className="flex items-center gap-2 mb-1 text-lg text-[#b773f8] font-bold">
@@ -248,31 +322,53 @@ function RetirementSection({ options }: { options: RetirementOption[] }) {
       </div>
     </div>
   );
+  return content;
 }
 
-function EmergencyFundSection() {
+// Updated component signature
+function EmergencyFundSection({ emergencyFund, paidLeaveFund, handleContribute }: {
+  emergencyFund: FundBalance | undefined;
+  paidLeaveFund: FundBalance | undefined;
+  handleContribute: (type: FundBalance['type']) => void;
+}) {
+  const eFund = emergencyFund || { currentAmount: 0, goalAmount: 10000 };
+  const pFund = paidLeaveFund || { currentAmount: 0, goalAmount: 5000 };
+
+  const ePercent = Math.min(100, (eFund.currentAmount / eFund.goalAmount) * 100);
+  const pPercent = Math.min(100, (pFund.currentAmount / pFund.goalAmount) * 100);
+
   return (
     <div>
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         <div className="bg-[#28223b] rounded-xl px-6 py-6 flex flex-col">
           <span className="text-lg font-bold mb-3">Emergency Fund</span>
-          <span className="text-2xl font-extrabold mb-1">₹3,500</span>
-          <span className="text-gray-400 text-sm mb-2">of ₹10,000 goal</span>
+          <span className="text-2xl font-extrabold mb-1">{formatCurrency(eFund.currentAmount)}</span>
+          <span className="text-gray-400 text-sm mb-2">of {formatCurrency(eFund.goalAmount)} goal</span>
           <div className="h-3 w-full rounded bg-[#392955] mb-2">
-            <div className="h-3 rounded bg-[#b773f8]" style={{ width: "35%" }} />
+            <div className="h-3 rounded bg-[#b773f8]" style={{ width: `${ePercent}%` }} />
           </div>
-          <span className="text-[#b773f8] self-end font-bold">35%</span>
-          <button className="bg-[#b773f8] mt-4 py-2 rounded-md text-white">Add Funds</button>
+          <span className="text-[#b773f8] self-end font-bold">{Math.round(ePercent)}%</span>
+          <button
+            className="bg-[#b773f8] mt-4 py-2 rounded-md text-white"
+            onClick={() => handleContribute('EmergencyFund')}
+          >
+            Add Funds
+          </button>
         </div>
         <div className="bg-[#28223b] rounded-xl px-6 py-6 flex flex-col">
           <span className="text-lg font-bold mb-3">Paid Leave Fund</span>
-          <span className="text-2xl font-extrabold mb-1">₹1,200</span>
-          <span className="text-gray-400 text-sm mb-2">of ₹5,000 goal</span>
+          <span className="text-2xl font-extrabold mb-1">{formatCurrency(pFund.currentAmount)}</span>
+          <span className="text-gray-400 text-sm mb-2">of {formatCurrency(pFund.goalAmount)} goal</span>
           <div className="h-3 w-full rounded bg-[#392955] mb-2">
-            <div className="h-3 rounded bg-[#b773f8]" style={{ width: "24%" }} />
+            <div className="h-3 rounded bg-[#b773f8]" style={{ width: `${pPercent}%` }} />
           </div>
-          <span className="text-[#b773f8] self-end font-bold">24%</span>
-          <button className="bg-[#b773f8] mt-4 py-2 rounded-md text-white">Add Funds</button>
+          <span className="text-[#b773f8] self-end font-bold">{Math.round(pPercent)}%</span>
+          <button
+            className="bg-[#b773f8] mt-4 py-2 rounded-md text-white"
+            onClick={() => handleContribute('PaidLeaveFund')}
+          >
+            Add Funds
+          </button>
         </div>
       </div>
       {/* Calculator */}

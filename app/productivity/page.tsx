@@ -1,85 +1,395 @@
+// app/productivity/page.tsx
+
 'use client';
-import React, { useState, useRef, useEffect, useCallback } from "react";
+import React, { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import { useAuth } from '../context/AuthContext';
 import { apiFetch } from '@/lib/api';
 
-// Define the shape of data expected from the backend for a Task
+// --- START: Data Structures ---
 interface Task {
   _id: string;
   text: string;
   done: boolean;
-  dueDate?: string;
+  dueDate?: string; // ISO string
   priority: 'Low' | 'Medium' | 'High';
 }
 
-// --- START: Static/Local Data and Helper Functions (No API Change) ---
+interface CalendarEvent {
+  _id: string;
+  title: string;
+  description?: string;
+  date: string; // ISO string from backend
+  type: 'ProjectDeadline' | 'NetworkEvent' | 'Personal';
+}
 
-// Constants (Moved inside the component) ---
+type CalendarEventMap = { [dateKey: string]: string[] };
+
+// --- END: Data Structures ---
+
+
+// --- START: Static/Local Data and Helper Functions ---
 const MONTHS = [
   "January", "February", "March", "April", "May", "June",
   "July", "August", "September", "October", "November", "December"
 ];
-// We use the WEEK array for day headers, starting Monday (MON, TUE, WED, THU, FRI, SAT, SUN)
 const WEEK = ['MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT', 'SUN'];
+const PRIORITY_OPTIONS = ['Low', 'Medium', 'High'] as const;
 
-// --- Helper: returns [weeks[day, day,...]]
 function getMonthMatrix(month: number, year: number) {
   const first = new Date(year, month, 1);
   const last = new Date(year, month + 1, 0);
   const matrix: (number | null)[][] = [];
   let week: (number | null)[] = [];
   let day = 1;
+  let firstDay = new Date(year, month, 1).getDay() === 0 ? 6 : new Date(year, month, 1).getDay() - 1;
   let daysInMonth = last.getDate();
-  // Monday start: getDay() returns 0 (Sunday) to 6 (Saturday). We shift it so 0 is Monday.
-  let firstDay = first.getDay() === 0 ? 6 : first.getDay() - 1;
-
   for (let x = 0; x < firstDay; x++) week.push(null);
   while (day <= daysInMonth) {
     week.push(day);
     if (week.length === 7) { matrix.push(week); week = []; }
     day++;
   }
-  // Pad the last week
   while (week.length > 0 && week.length < 7) week.push(null);
   if (week.length > 0) matrix.push(week);
   return matrix;
 }
 
 function dayKey(day: number, mon: number, yr: number) {
-  // Returns YYYY-MM-DD
   return `${yr}-${('0' + (mon + 1)).slice(-2)}-${('0' + day).slice(-2)}`;
+}
+
+// Helper to format ISO date string to YYYY-MM-DD for input[type=date]
+const formatDateForInput = (isoDate?: string) => {
+  return isoDate ? isoDate.substring(0, 10) : '';
 }
 
 // --- END: Static/Local Data and Helper Functions ---
 
 
+// --- Task Item Component (UPDATED) ---
+interface TaskItemProps {
+  task: Task;
+  onToggle: (id: string, done: boolean) => Promise<void>;
+  onDelete: (id: string) => Promise<void>;
+  onUpdate: (id: string, updates: Partial<Task>) => Promise<void>;
+}
+
+const TaskItem = React.memo(({ task, onToggle, onDelete, onUpdate }: TaskItemProps) => {
+  const [isEditing, setIsEditing] = useState(false);
+  const [editText, setEditText] = useState(task.text);
+  const [editDueDate, setEditDueDate] = useState(formatDateForInput(task.dueDate));
+  const [editPriority, setEditPriority] = useState(task.priority);
+  const [updateLoading, setUpdateLoading] = useState(false);
+
+  // Sync local state when external task prop changes (e.g., after a successful update/sort)
+  useEffect(() => {
+    setEditText(task.text);
+    setEditDueDate(formatDateForInput(task.dueDate));
+    setEditPriority(task.priority);
+    setIsEditing(false);
+  }, [task.text, task.dueDate, task.priority, task.done]);
+
+  const handleUpdate = async () => {
+    if (!editText.trim()) return;
+
+    setUpdateLoading(true);
+    const updates: Partial<Task> = {
+      text: editText.trim(),
+      dueDate: editDueDate || undefined,
+      priority: editPriority,
+    };
+
+    try {
+      await onUpdate(task._id, updates);
+      // State will be synced via useEffect after fetchTasks() runs
+    } catch (error) {
+      console.error("Update failed:", error);
+    } finally {
+      setUpdateLoading(false);
+    }
+  };
+
+  const priorityClass = task.priority === 'High' ? 'text-red-400 font-bold' :
+    task.priority === 'Medium' ? 'text-yellow-400' : 'text-gray-400';
+
+  const dueDateText = task.dueDate ? new Date(task.dueDate).toLocaleDateString('en-GB') : 'No Deadline';
+  const isOverdue = task.dueDate && !task.done && new Date(task.dueDate) < new Date(new Date().setHours(0, 0, 0, 0));
+
+  return (
+    <div className="flex flex-col gap-1 mb-2 group">
+      <div className="flex items-center gap-3">
+        <button
+          className={`w-7 h-7 rounded-lg flex items-center justify-center border-2 ${task.done ? 'border-[#66e36a] bg-[#19171c]' : 'border-gray-400 bg-[#19171c]'}`}
+          onClick={() => onToggle(task._id, task.done)}
+          disabled={updateLoading}
+        >
+          {task.done && <span className="text-[#66e36a] text-lg">✔️</span>}
+        </button>
+
+        {isEditing ? (
+          <input
+            value={editText}
+            onChange={e => setEditText(e.target.value)}
+            onBlur={handleUpdate}
+            onKeyDown={e => { if (e.key === 'Enter') handleUpdate(); }}
+            className="flex-1 px-2 py-1 rounded bg-[#29253b] text-white focus:outline-purple-500"
+            disabled={updateLoading}
+          />
+        ) : (
+          <span
+            className={`flex-1 text-base transition-all cursor-pointer ${task.done ? 'line-through text-gray-500' : 'text-white'}`}
+            onClick={() => setIsEditing(true)}
+          >
+            {task.text}
+          </span>
+        )}
+
+        <button className="opacity-0 group-hover:opacity-100 text-[#b773f8] hover:text-white rounded p-1 transition"
+          onClick={() => setIsEditing(true)}
+          disabled={updateLoading}
+        >
+          📝
+        </button>
+        <button
+          className="opacity-0 group-hover:opacity-100 text-[#b773f8] hover:text-red-500 rounded p-1 transition"
+          onClick={() => onDelete(task._id)}
+          disabled={updateLoading}
+        >
+          🗑️
+        </button>
+      </div>
+
+      <div className='flex gap-4 text-xs ml-10'>
+        <span className={priorityClass}>Priority: {task.priority}</span>
+        <span className={isOverdue ? 'text-red-500' : 'text-gray-400'}>
+          Due: {dueDateText}
+        </span>
+      </div>
+
+      {isEditing && (
+        <div className='flex gap-2 ml-10 mt-2 p-2 bg-[#29253b] rounded-lg items-center'>
+          <select
+            value={editPriority}
+            onChange={e => setEditPriority(e.target.value as 'Low' | 'Medium' | 'High')}
+            className="p-1 rounded-md bg-[#18141e] text-white text-xs"
+            disabled={updateLoading}
+          >
+            {PRIORITY_OPTIONS.map(p => <option key={p} value={p}>{p}</option>)}
+          </select>
+          <input
+            type="date"
+            value={editDueDate}
+            onChange={e => setEditDueDate(e.target.value)}
+            className="p-1 rounded-md bg-[#18141e] text-white text-xs"
+            disabled={updateLoading}
+          />
+          <button
+            onClick={handleUpdate}
+            className="bg-[#b773f8] px-2 py-1 rounded-md text-black text-xs font-semibold"
+            disabled={updateLoading}
+          >
+            {updateLoading ? 'Saving...' : 'Done'}
+          </button>
+        </div>
+      )}
+    </div>
+  );
+});
+TaskItem.displayName = 'TaskItem';
+// --- END: Task Item Component ---
+
 export default function ProductivityPage() {
   const { isLoggedIn } = useAuth();
 
-  // --- API & Loading States ---
+  // --- Task Management (API Integrated - from Phase 2.4) ---
   const [loadingTasks, setLoadingTasks] = useState(true);
   const [tasks, setTasks] = useState<Task[]>([]);
   const [newTask, setNewTask] = useState("");
   const [taskError, setTaskError] = useState<string | null>(null);
 
-  // --- Timer State (Local Only) ---
+  // --- Event Management (API Integrated) ---
+  const [loadingEvents, setLoadingEvents] = useState(true);
+  const [calendarEvents, setCalendarEvents] = useState<CalendarEvent[]>([]);
+  const [eventMap, setEventMap] = useState<CalendarEventMap>({});
+  const [newEventTitle, setNewEventTitle] = useState("");
+  const [eventError, setEventError] = useState<string | null>(null);
+  const [isDeletingEvent, setIsDeletingEvent] = useState<string | null>(null);
+
+  // --- Time Tracking & Calendar UI States (Unchanged) ---
   const [timer, setTimer] = useState(0);
   const [timerActive, setTimerActive] = useState(false);
   const timerRef = useRef<NodeJS.Timeout | null>(null);
-
-  // --- Calendar/Event States (Local Only) ---
   const today = new Date();
   const [cMonth, setCMonth] = useState(today.getMonth());
   const [cYear, setCYear] = useState(today.getFullYear());
   const [selected, setSelected] = useState({ day: today.getDate(), month: today.getMonth(), year: today.getFullYear() });
-  const [events, setEvents] = useState<{ [key: string]: string[] }>({
-    '2025-11-04': ["amey bday"]
-  });
-  const [newEvent, setNewEvent] = useState("");
   const [showMonthSelector, setShowMonthSelector] = useState(false);
   const [showYearSelector, setShowYearSelector] = useState(false);
 
-  // Timer logic (Local Only)
+
+  // --- Core Fetching Logic ---
+  const fetchTasks = useCallback(async () => {
+    if (!isLoggedIn) return;
+    setLoadingTasks(true);
+    setTaskError(null);
+    try {
+      const { tasks: fetchedTasks } = await apiFetch('/tasks', { method: 'GET' });
+      // Sort tasks: Undone first, then by priority (High > Medium > Low), then by date
+      const sortedTasks = fetchedTasks.sort((a: Task, b: Task) => {
+        if (a.done !== b.done) return a.done ? 1 : -1;
+
+        const priorityOrder = { High: 3, Medium: 2, Low: 1 };
+        const pA = priorityOrder[a.priority] || 0;
+        const pB = priorityOrder[b.priority] || 0;
+        if (pA !== pB) return pB - pA; // High priority first
+
+        return new Date(a.dueDate || 0).getTime() - new Date(b.dueDate || 0).getTime();
+      });
+      setTasks(sortedTasks || []);
+    } catch (err) {
+      setTaskError("Failed to load tasks.");
+    } finally {
+      setLoadingTasks(false);
+    }
+  }, [isLoggedIn]);
+
+  const fetchEvents = useCallback(async () => {
+    if (!isLoggedIn) return;
+    setLoadingEvents(true);
+    setEventError(null);
+    try {
+      const { events: fetchedEvents } = await apiFetch('/events', { method: 'GET' });
+
+      setCalendarEvents(fetchedEvents || []);
+
+      const newEventMap: CalendarEventMap = {};
+      (fetchedEvents || []).forEach((event: CalendarEvent) => {
+        const dateKey = event.date.substring(0, 10);
+        if (!newEventMap[dateKey]) {
+          newEventMap[dateKey] = [];
+        }
+        newEventMap[dateKey].push(event.title);
+      });
+      setEventMap(newEventMap);
+    } catch (err) {
+      setEventError("Failed to load calendar events.");
+    } finally {
+      setLoadingEvents(false);
+    }
+  }, [isLoggedIn]);
+
+  useEffect(() => {
+    fetchTasks();
+    fetchEvents();
+  }, [fetchTasks, fetchEvents]);
+
+  // --- API Integrated Task Handlers (UPDATED) ---
+
+  async function handleAddTask() {
+    if (!newTask.trim()) return;
+    setTaskError(null);
+    try {
+      await apiFetch('/tasks', {
+        method: 'POST',
+        body: JSON.stringify({
+          text: newTask.trim(),
+          priority: 'Medium',
+          dueDate: new Date(new Date().setHours(0, 0, 0, 0)).toISOString(), // Default due date today
+        }),
+      });
+      await fetchTasks(); // Re-fetch to ensure sorting consistency
+      setNewTask("");
+    } catch (err: any) {
+      setTaskError(err.message || "Failed to add task.");
+    }
+  }
+
+  // Toggling done status - uses the specific update handler
+  const handleToggleTask = useCallback(async (taskId: string, currentDone: boolean) => {
+    await handleUpdateTask(taskId, { done: !currentDone });
+  }, [handleUpdateTask]);
+
+  // Full update for editing priority/date/text
+  const handleUpdateTask = useCallback(async (taskId: string, updates: Partial<Task>) => {
+    setTaskError(null);
+
+    try {
+      await apiFetch(`/tasks/${taskId}`, {
+        method: 'PUT',
+        body: JSON.stringify(updates),
+      });
+      await fetchTasks();
+    } catch (err: any) {
+      setTaskError(err.message || "Failed to save task edits.");
+      throw err;
+    }
+  }, [fetchTasks]);
+
+
+  // DELETE /api/tasks/:id 
+  const handleDeleteTask = useCallback(async (taskId: string) => {
+    setTaskError(null);
+    const originalTasks = tasks;
+    setTasks(tasks.filter(t => t._id !== taskId));
+    try {
+      await apiFetch(`/tasks/${taskId}`, { method: 'DELETE' });
+    } catch (err: any) {
+      setTaskError(err.message || "Failed to delete task.");
+      setTasks(originalTasks);
+    }
+  }, [tasks]);
+
+  // --- API Integrated Event Handlers (Unchanged/Retained) ---
+
+  async function handleAddEvent() {
+    if (!newEventTitle.trim()) return;
+    setEventError(null);
+    const eventDate = new Date(selected.year, selected.month, selected.day);
+
+    try {
+      const payload = {
+        title: newEventTitle.trim(),
+        date: eventDate.toISOString(),
+        type: 'Personal',
+      };
+      const { event: createdEvent } = await apiFetch('/events', {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      });
+      setCalendarEvents(prev => [...prev, createdEvent]);
+      const dateKey = createdEvent.date.substring(0, 10);
+      setEventMap(prevMap => ({
+        ...prevMap,
+        [dateKey]: [...(prevMap[dateKey] || []), createdEvent.title]
+      }));
+      setNewEventTitle("");
+    } catch (err: any) {
+      setEventError(err.message || "Failed to add event.");
+    }
+  }
+
+  const handleDeleteEvent = async (eventId: string) => {
+    if (!window.confirm("Are you sure you want to permanently delete this event?")) {
+      return;
+    }
+
+    setIsDeletingEvent(eventId);
+    setEventError(null);
+
+    try {
+      await apiFetch(`/events/${eventId}`, { method: 'DELETE' });
+      await fetchEvents();
+
+    } catch (err: any) {
+      setEventError(err.message || "Failed to delete event.");
+      await fetchEvents();
+    } finally {
+      setIsDeletingEvent(null);
+    }
+  };
+
+
+  // --- Local State Logic (Unchanged) ---
   useEffect(() => {
     if (timerActive) {
       timerRef.current = setInterval(() => setTimer(t => t + 1), 1000);
@@ -89,83 +399,8 @@ export default function ProductivityPage() {
     return () => { if (timerRef.current) clearInterval(timerRef.current); };
   }, [timerActive]);
 
-  // --- Data Fetching Effect: GET /api/tasks ---
-  const fetchTasks = useCallback(async () => {
-    if (!isLoggedIn) return;
-    setLoadingTasks(true);
-    setTaskError(null);
-    try {
-      const { tasks: fetchedTasks } = await apiFetch('/tasks', { method: 'GET' });
-      setTasks(fetchedTasks || []);
-    } catch (err) {
-      console.error("Failed to fetch tasks:", err);
-      setTaskError("Failed to load tasks.");
-    } finally {
-      setLoadingTasks(false);
-    }
-  }, [isLoggedIn]);
-
-  useEffect(() => {
-    fetchTasks();
-  }, [fetchTasks]);
-
-
-  // --- Task Handlers (API Integrated) ---
-
-  // POST /api/tasks
-  async function handleAddTask() {
-    if (!newTask.trim()) return;
-
-    setTaskError(null);
-    try {
-      const { task: createdTask } = await apiFetch('/tasks', {
-        method: 'POST',
-        body: JSON.stringify({ text: newTask.trim(), priority: 'Medium' }),
-      });
-      setTasks(prev => [createdTask, ...prev]);
-      setNewTask("");
-    } catch (err: any) {
-      setTaskError(err.message || "Failed to add task.");
-    }
-  }
-
-  // PUT /api/tasks/:id
-  async function handleToggleTask(taskId: string, currentDone: boolean) {
-    setTaskError(null);
-    // Optimistic UI Update
-    setTasks(tasks.map(t => t._id === taskId ? { ...t, done: !currentDone } : t));
-
-    try {
-      await apiFetch(`/tasks/${taskId}`, {
-        method: 'PUT',
-        body: JSON.stringify({ done: !currentDone }),
-      });
-    } catch (err: any) {
-      setTaskError(err.message || "Failed to update task status.");
-      // Rollback optimistic update on failure
-      setTasks(tasks.map(t => t._id === taskId ? { ...t, done: currentDone } : t));
-    }
-  }
-
-  // DELETE /api/tasks/:id
-  async function handleDeleteTask(taskId: string) {
-    setTaskError(null);
-    const originalTasks = tasks;
-    // Optimistic UI Update: Remove task instantly
-    setTasks(tasks.filter(t => t._id !== taskId));
-
-    try {
-      // Note: DELETE returns 204 No Content
-      await apiFetch(`/tasks/${taskId}`, { method: 'DELETE' });
-    } catch (err: any) {
-      setTaskError(err.message || "Failed to delete task.");
-      // Rollback optimistic deletion on failure
-      setTasks(originalTasks);
-    }
-  }
-
-  // --- Calendar Helpers (Local Only) ---
-  function handleMonthChange(delta: number) {
+  // Calendar Helpers (Unchanged)
+  const handleMonthChange = (delta: number) => {
     let m = cMonth + delta, y = cYear;
     if (m > 11) { m = 0; y++; }
     else if (m < 0) { m = 11; y--; }
@@ -173,31 +408,30 @@ export default function ProductivityPage() {
     const newLastDay = new Date(y, m + 1, 0).getDate();
     setSelected(prev => ({ ...prev, day: Math.min(prev.day, newLastDay), month: m, year: y }));
     setShowMonthSelector(false);
-  }
-  function handleYearChange(delta: number) {
+  };
+
+  const handleYearChange = (delta: number) => {
     setCYear(cYear + delta);
     setSelected(prev => ({ ...prev, year: cYear + delta }));
     setShowYearSelector(false);
-  }
-  function handleSelectMonth(newMonth: number) {
+  };
+
+  const handleSelectMonth = (newMonth: number) => {
     setCMonth(newMonth);
     setSelected(prev => ({ ...prev, month: newMonth, year: cYear }));
     setShowMonthSelector(false);
-  }
-  function handleSelectYear(newYear: number) {
+  };
+  const handleSelectYear = (newYear: number) => {
     setCYear(newYear);
     setSelected(prev => ({ ...prev, year: newYear, month: cMonth }));
     setShowYearSelector(false);
-  }
-  function handleAddEvent() {
-    if (!newEvent.trim()) return;
-    const k = dayKey(selected.day, selected.month, selected.year);
-    setEvents({ ...events, [k]: [...(events[k] || []), newEvent] });
-    setNewEvent("");
-  }
+  };
 
   const selectedDayKey = dayKey(selected.day, selected.month, selected.year);
-  const selectedEvents = events[selectedDayKey] || [];
+  const selectedEventsDetails = calendarEvents
+    .filter(event => event.date.startsWith(selectedDayKey))
+    .map(event => ({ id: event._id, title: event.title }));
+
   const monthDays = getMonthMatrix(cMonth, cYear);
   const isTodayDate = (day: number) => {
     return day === today.getDate() && cMonth === today.getMonth() && cYear === today.getFullYear();
@@ -230,21 +464,14 @@ export default function ProductivityPage() {
   };
 
   const AllEventsList = () => {
-    // 1. Convert events map into a sortable array
-    const allEvents: { date: Date, event: string }[] = [];
+    const allEvents = calendarEvents.map(event => ({
+      date: new Date(event.date),
+      event: event.title,
+      _id: event._id,
+    }));
 
-    for (const dateKey in events) {
-      const [year, month, day] = dateKey.split('-').map(Number);
-      events[dateKey].forEach(event => {
-        // Note: Month in JS Date is 0-indexed, so subtract 1
-        allEvents.push({ date: new Date(year, month - 1, day), event });
-      });
-    }
-
-    // 2. Sort events by date in ascending order
     allEvents.sort((a, b) => a.date.getTime() - b.date.getTime());
 
-    // Date formatter for display
     const formatDate = (date: Date) => {
       return date.toLocaleDateString('en-US', {
         year: 'numeric',
@@ -262,9 +489,18 @@ export default function ProductivityPage() {
         ) : (
           <div className="flex flex-col gap-3">
             {allEvents.map((item, idx) => (
-              <div key={idx} className="flex justify-between items-center bg-[#1e1a2a] px-4 py-3 rounded-lg border border-[#29253b]">
+              <div key={item._id} className={`flex justify-between items-center bg-[#1e1a2a] px-4 py-3 rounded-lg border border-[#29253b] transition ${isDeletingEvent === item._id ? 'opacity-50' : ''}`}>
                 <span className="font-semibold text-white">{item.event}</span>
-                <span className="text-sm text-gray-400 font-mono">{formatDate(item.date)}</span>
+                <div className='flex items-center gap-3'>
+                  <span className="text-sm text-gray-400 font-mono">{formatDate(item.date)}</span>
+                  <button
+                    className='text-red-500/80 hover:text-red-300'
+                    onClick={() => handleDeleteEvent(item._id)}
+                    disabled={!!isDeletingEvent}
+                  >
+                    🗑️
+                  </button>
+                </div>
               </div>
             ))}
           </div>
@@ -272,8 +508,6 @@ export default function ProductivityPage() {
       </section>
     );
   }
-  // --- END: Calendar Helpers (Local Only) ---
-
   // --- Main Render ---
   return (
     <div className="min-h-screen flex flex-col bg-[#18141e] text-white px-0">
@@ -308,18 +542,14 @@ export default function ProductivityPage() {
             ) : tasks.length === 0 ? (
               <div className="text-gray-400 italic">No tasks found. Add a new one above!</div>
             ) : (
-              tasks.map((task, idx) =>
-                <div key={task._id} className="flex items-center gap-3 mb-2 group">
-                  <button className={`w-7 h-7 rounded-lg flex items-center justify-center border-2 ${task.done ? 'border-[#66e36a] bg-[#19171c]' : 'border-gray-400 bg-[#19171c]'}`}
-                    onClick={() => handleToggleTask(task._id, task.done)}>
-                    {task.done && <span className="text-[#66e36a] text-lg">✔️</span>}
-                  </button>
-                  <span className={`flex-1 text-base transition-all select-none ${task.done ? 'line-through text-gray-500' : 'text-white'}`}>{task.text}</span>
-                  <button className="opacity-70 group-hover:opacity-100 text-[#b773f8] hover:text-red-500 rounded p-1"
-                    onClick={() => handleDeleteTask(task._id)}>
-                    🗑️
-                  </button>
-                </div>
+              tasks.map((task) =>
+                <TaskItem
+                  key={task._id}
+                  task={task}
+                  onToggle={handleToggleTask}
+                  onDelete={handleDeleteTask}
+                  onUpdate={handleUpdateTask}
+                />
               )
             )}
           </div>
@@ -344,7 +574,7 @@ export default function ProductivityPage() {
           </div>
         </section>
 
-        {/* Calendar & Scheduling (Local Only) */}
+        {/* Calendar & Scheduling */}
         <section className="bg-[#232027] rounded-xl p-7 shadow-md">
           <div className="flex items-center gap-2 mb-3">
             <span className="text-2xl" style={{ color: "#ff952a" }}>🗓️</span>
@@ -352,8 +582,10 @@ export default function ProductivityPage() {
           </div>
           <div className="text-gray-400 text-sm mb-3 ml-7">Manage your schedule and gig bookings.</div>
 
+          {eventError && <div className="ml-7 text-sm text-red-400 mt-2">{eventError}</div>}
+
           <div className="p-4 bg-[#1e1a2a] rounded-xl">
-            {/* Calendar header for month/year switch */}
+            {/* Calendar header for month/year switch (Unchanged) */}
             <div className="flex items-center mb-4 justify-between w-full text-white">
 
               {/* Left Arrows */}
@@ -405,60 +637,61 @@ export default function ProductivityPage() {
 
             {/* Calendar grid wrapper */}
             <div className="grid grid-cols-7 border-t border-[#29253b] border-l border-r border-b-0 divide-x divide-[#29253b] text-center select-none">
-              {/* Day Headers */}
+              {/* Day Headers (Unchanged) */}
               {WEEK.map((d, idx) =>
                 <div key={idx} className="text-sm p-2 text-gray-400 font-medium bg-[#18141e] border-b border-[#29253b]">
                   {d}
                 </div>
               )}
 
-              {/* Calendar Days */}
-              {monthDays.flat().map((d, i) => {
-                const day = d;
-                const isPrevNextMonth = d === null;
-                const isSelected = !isPrevNextMonth && d === selected.day && cMonth === selected.month && cYear === selected.year;
-                const isToday = !isPrevNextMonth && isTodayDate(d!);
-                const isWeekend = i % 7 >= 5; // Saturday/Sunday indices
-                const key = dayKey(day || 1, cMonth, cYear);
-                const hasEvents = !isPrevNextMonth && events[key]?.length > 0;
+              {/* Calendar Days (Unchanged) */}
+              {loadingEvents ? (
+                <div className="col-span-7 p-4 text-center text-gray-400">Loading Calendar Events...</div>
+              ) : (
+                monthDays.flat().map((d, i) => {
+                  const day = d;
+                  const isPrevNextMonth = d === null;
+                  const isSelected = !isPrevNextMonth && d === selected.day && cMonth === selected.month && cYear === selected.year;
+                  const isToday = !isPrevNextMonth && isTodayDate(d!);
+                  const key = dayKey(day || 1, cMonth, cYear);
+                  const hasEvents = !isPrevNextMonth && eventMap[key]?.length > 0;
 
-                // Styling precedence: Selected > Today > Weekend/Event > Default
-                let dayClasses = "text-white";
-                if (isSelected) {
-                  dayClasses = "bg-[#4a86f2] text-white"; // Blue selected color from screenshot
-                } else if (isToday) {
-                  dayClasses = "bg-yellow-600/80 text-black font-bold"; // Yellow today color from screenshot
-                } else if (isWeekend) {
-                  dayClasses = "text-red-500/80 hover:bg-[#29253b]"; // Red weekend color
-                } else if (hasEvents) {
-                  dayClasses = "text-gray-200 hover:bg-[#29253b]";
-                } else {
-                  dayClasses = "text-gray-400 hover:bg-[#29253b]";
-                }
+                  let dayClasses = "text-white";
+                  if (isSelected) {
+                    dayClasses = "bg-[#4a86f2] text-white";
+                  } else if (isToday) {
+                    dayClasses = "bg-yellow-600/80 text-black font-bold";
+                  } else if (i % 7 >= 5) {
+                    dayClasses = "text-red-500/80 hover:bg-[#29253b]";
+                  } else if (hasEvents) {
+                    dayClasses = "text-gray-200 hover:bg-[#29253b]";
+                  } else {
+                    dayClasses = "text-gray-400 hover:bg-[#29253b]";
+                  }
 
-
-                return (
-                  <div
-                    key={i}
-                    className={`h-14 border-b border-[#29253b] flex items-center justify-center p-1 cursor-pointer transition 
+                  return (
+                    <div
+                      key={i}
+                      className={`h-14 border-b border-[#29253b] flex items-center justify-center p-1 cursor-pointer transition 
                                 ${isPrevNextMonth ? 'bg-[#1e1a2a]/50' : 'bg-[#1e1a2a]'} `}
-                    onClick={() => {
-                      if (day !== null) {
-                        setSelected({ day: day, month: cMonth, year: cYear });
-                      }
-                    }}
-                  >
-                    {day !== null && (
-                      <div className={`w-full h-full flex flex-col items-center justify-start rounded-md p-1 transition ${dayClasses}`}>
-                        <span className="text-sm font-semibold">{day}</span>
-                        {hasEvents && (
-                          <span className={`w-1.5 h-1.5 mt-1 rounded-full ${isSelected ? 'bg-white' : 'bg-[#b773f8]'}`}></span>
-                        )}
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
+                      onClick={() => {
+                        if (day !== null) {
+                          setSelected({ day: day, month: cMonth, year: cYear });
+                        }
+                      }}
+                    >
+                      {day !== null && (
+                        <div className={`w-full h-full flex flex-col items-center justify-start rounded-md p-1 transition ${dayClasses}`}>
+                          <span className="text-sm font-semibold">{day}</span>
+                          {hasEvents && (
+                            <span className={`w-1.5 h-1.5 mt-1 rounded-full ${isSelected ? 'bg-white' : 'bg-[#b773f8]'}`}></span>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })
+              )}
             </div>
 
             {/* Add event/Show selected date */}
@@ -466,25 +699,32 @@ export default function ProductivityPage() {
               <div className="flex gap-2">
                 <input
                   className="flex-1 px-3 py-2 rounded bg-[#18141e] text-white placeholder-gray-400 border border-[#29253b] focus:border-[#b773f8] outline-none"
-                  placeholder={`Add an event...`}
-                  value={newEvent}
-                  onChange={e => setNewEvent(e.target.value)}
+                  placeholder={`Add an event on ${MONTHS[selected.month]} ${selected.day}...`}
+                  value={newEventTitle}
+                  onChange={e => setNewEventTitle(e.target.value)}
                   onKeyDown={e => { if (e.key === 'Enter') handleAddEvent(); }}
                 />
-                <button className="bg-[#b773f8] px-4 py-2 rounded-lg font-semibold text-black hover:bg-[#a65df6] transition" onClick={handleAddEvent}>+ Add</button>
+                <button className="bg-[#b773f8] px-4 py-2 rounded-lg font-semibold text-black" onClick={handleAddEvent}>+ Add</button>
               </div>
 
               {/* Show events for the selected day */}
               <div className="mt-2">
                 <span className="block text-sm text-gray-400 mb-2 font-semibold">
-                  {MONTHS[selected.month]} {selected.day}, {selected.year}
+                  Events for {MONTHS[selected.month]} {selected.day}, {selected.year}
                 </span>
-                {(selectedEvents).map((ev, idx) => (
-                  <div key={idx} className="flex items-center gap-2 bg-[#1e1a2a] px-3 py-2 rounded-xl mb-2 text-white border border-[#29253b]">
-                    <span>{ev}</span>
+                {(selectedEventsDetails).map((ev, idx) => (
+                  <div key={ev.id} className={`flex items-center justify-between bg-[#1e1a2a] px-3 py-2 rounded-xl mb-2 text-white border border-[#29253b] transition ${isDeletingEvent === ev.id ? 'opacity-50' : ''}`}>
+                    <span>{ev.title}</span>
+                    <button
+                      className='text-red-500/80 hover:text-red-300'
+                      onClick={() => handleDeleteEvent(ev.id)}
+                      disabled={!!isDeletingEvent}
+                    >
+                      <span className='text-xs'>🗑️</span>
+                    </button>
                   </div>
                 ))}
-                {selectedEvents.length === 0 && (
+                {selectedEventsDetails.length === 0 && (
                   <div className="text-gray-500 text-sm italic p-2">No events scheduled.</div>
                 )}
               </div>
@@ -493,7 +733,7 @@ export default function ProductivityPage() {
           </div>
         </section>
 
-        {/* All Events List (NEW SECTION) */}
+        {/* All Events List (Updated) */}
         <AllEventsList />
 
       </main>
