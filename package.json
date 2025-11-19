@@ -9,6 +9,7 @@
     "lint": "next lint"
   },
   "dependencies": {
+    "@tailwindcss/postcss": "^4.1.17",
     "bcryptjs": "^2.4.3",
     "jsonwebtoken": "^9.0.2",
     "mongoose": "^8.0.0",
@@ -25,7 +26,10 @@
     "autoprefixer": "^10.4.22",
     "eslint": "8",
     "eslint-config-next": "14.x.x",
-    "tailwindcss": "^4.1.17",
-    "typescript": "5.x.x"
+    "typescript": "5.x.x",
+    "@tailwindcss/postcss": "^4.1.9",
+    "postcss": "^8.5",
+    "tailwindcss": "^4.1.9",
+    "tw-animate-css": "1.3.3"
   }
 }
