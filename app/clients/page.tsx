@@ -4,6 +4,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { apiFetch } from '@/lib/api';
+import ClientFormModal from '@/components/ClientFormModal';
 // Assuming ClientFormModal exists in '@/components/ClientFormModal'
 
 // Define the shape of data expected from the backend
