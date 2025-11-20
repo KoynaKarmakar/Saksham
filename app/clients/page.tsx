@@ -253,13 +253,13 @@ export default function ClientsPage() {
 
       {/* Client Modal Integration (Requires '@/components/ClientFormModal') */}
       {/* Assuming ClientFormModal is available as defined in the previous step's thoughts */}
-      {/* <ClientFormModal 
+      <ClientFormModal 
         isOpen={isModalOpen}
         onClose={() => setIsModalOpen(false)}
         onSubmit={handleAddClientSubmit}
         loading={modalLoading}
         error={modalError}
-      /> */}
+      />
 
       <main className="max-w-[1400px] mx-auto w-full px-7 pb-10">
         {/* Error Display */}
