@@ -69,21 +69,27 @@ const UserSchema: Schema = new Schema(
 
 // Hash Password before saving
 UserSchema.pre<IUser>('save', async function (next) {
+    // If password is not modified, return early
     if (!this.isModified('password')) {
-        next();
+        return next();
     }
-    const salt = await bcrypt.genSalt(10);
-    this.password = await bcrypt.hash(this.password!, salt);
-    next();
+    
+    try {
+        const salt = await bcrypt.genSalt(10);
+        this.password = await bcrypt.hash(this.password!, salt);
+        next();
+    } catch (error: any) {
+        return next(error);
+    }
 });
 
 // Compare password method
 UserSchema.methods.matchPassword = async function (enteredPassword: string) {
-    const user = await (this as IUserModel).findById(this._id).select('+password');
-    if (user) {
-        return bcrypt.compare(enteredPassword, user.password!);
+    if (!this.password) {
+        console.error("matchPassword called but password field is missing/undefined.");
+        return false;
     }
-    return false;
+    return await bcrypt.compare(enteredPassword, this.password);
 };
 
 export interface IUserModel extends Model<IUser> { }
