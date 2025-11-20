@@ -3,6 +3,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { protect, AuthenticatedHandler } from '@/lib/middleware/auth';
 import Transaction from '@/lib/models/Transaction';
+import Client from '@/lib/models/Client'; // Import Client model
 import mongoose from 'mongoose';
 
 /**
@@ -33,7 +34,8 @@ const createTransactionHandler: AuthenticatedHandler = async (req: NextRequest, 
     }
 
     // Ensure amount is saved correctly (negative for expense)
-    const finalAmount = type === 'expense' ? -Math.abs(amount) : Math.abs(amount);
+    const isIncome = type === 'income';
+    const finalAmount = isIncome ? Math.abs(amount) : -Math.abs(amount);
 
     try {
         const newTransaction = await Transaction.create({
@@ -46,6 +48,18 @@ const createTransactionHandler: AuthenticatedHandler = async (req: NextRequest, 
             // Only include client ID if provided
             client: client || undefined,
         });
+
+        // --- NEW LOGIC: Update Client Metrics ---
+        // If this is an income transaction linked to a client, update the client's stats
+        if (isIncome && client) {
+            await Client.findByIdAndUpdate(client, {
+                $inc: { 
+                    totalBilled: finalAmount, // Add amount to total billed
+                    projectsCount: 1          // Increment active projects count
+                }
+            });
+        }
+        // ----------------------------------------
 
         return NextResponse.json({ transaction: newTransaction }, { status: 201 });
     } catch (error) {

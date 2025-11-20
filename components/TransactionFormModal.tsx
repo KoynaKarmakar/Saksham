@@ -1,7 +1,7 @@
 // components/TransactionFormModal.tsx
 'use client';
 import React, { useState, useEffect } from 'react';
-import { apiFetch } from '@/lib/api'; // Assuming lib/api.ts is available
+import { apiFetch } from '@/lib/api';
 
 // --- Hooks ---
 
@@ -19,7 +19,6 @@ const useClientOptions = () => {
         const fetchClients = async () => {
             setLoading(true);
             try {
-                // Endpoint fetches all clients, we use the raw backend object here
                 const { clients: fetchedClients } = await apiFetch('/clients', { method: 'GET' });
                 const options = fetchedClients.map((c: any) => ({
                     _id: c._id,
@@ -28,7 +27,7 @@ const useClientOptions = () => {
                 setClients(options);
             } catch (error) {
                 console.error("Failed to fetch clients for form:", error);
-                setClients([]); // Fallback to empty list on error
+                setClients([]);
             } finally {
                 setLoading(false);
             }
@@ -43,11 +42,11 @@ const useClientOptions = () => {
 
 interface TransactionFormData {
     name: string;
-    amount: string; // Use string for input handling
+    amount: string;
     type: 'income' | 'expense';
     category: string;
-    date: string; // YYYY-MM-DD
-    client: string; // Client ID
+    date: string;
+    client: string;
 }
 
 interface TransactionFormModalProps {
@@ -56,9 +55,10 @@ interface TransactionFormModalProps {
     onSubmit: (data: TransactionFormData) => Promise<void>;
     loading: boolean;
     error: string | null;
+    defaultClient?: string; // NEW PROP
 }
 
-export default function TransactionFormModal({ isOpen, onClose, onSubmit, loading, error }: TransactionFormModalProps) {
+export default function TransactionFormModal({ isOpen, onClose, onSubmit, loading, error, defaultClient }: TransactionFormModalProps) {
     const { clients, loading: clientsLoading } = useClientOptions();
 
     const [formData, setFormData] = useState<TransactionFormData>({
@@ -66,7 +66,7 @@ export default function TransactionFormModal({ isOpen, onClose, onSubmit, loadin
         amount: '',
         type: 'income',
         category: 'Consulting',
-        date: new Date().toISOString().substring(0, 10), // Default to today
+        date: new Date().toISOString().substring(0, 10),
         client: '',
     });
 
@@ -75,13 +75,21 @@ export default function TransactionFormModal({ isOpen, onClose, onSubmit, loadin
         expense: ["Software", "Marketing", "Office Supplies", "Taxes", "Travel", "Other Expense"],
     };
 
+    // Update client field when defaultClient prop changes or modal opens
+    useEffect(() => {
+        if (isOpen && defaultClient) {
+            setFormData(prev => ({ ...prev, client: defaultClient }));
+        } else if (isOpen && !defaultClient) {
+             setFormData(prev => ({ ...prev, client: '' }));
+        }
+    }, [isOpen, defaultClient]);
+
     if (!isOpen) return null;
 
     const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
         const { name, value } = e.target;
         setFormData(prev => ({ ...prev, [name]: value }));
 
-        // Reset category if type changes
         if (name === 'type') {
             const newType = value as 'income' | 'expense';
             setFormData(prev => ({
@@ -101,7 +109,9 @@ export default function TransactionFormModal({ isOpen, onClose, onSubmit, loadin
         <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50 transition-opacity">
             <div className="bg-[#1e1a2a] rounded-xl p-8 w-full max-w-lg shadow-2xl text-white">
                 <div className="flex justify-between items-center mb-6">
-                    <h2 className="text-2xl font-bold text-[#b773f8]">Add New Transaction</h2>
+                    <h2 className="text-2xl font-bold text-[#b773f8]">
+                        {formData.type === 'income' ? 'Record Invoice / Income' : 'Add Transaction'}
+                    </h2>
                     <button onClick={onClose} className="text-gray-400 hover:text-white text-3xl leading-none">&times;</button>
                 </div>
 
@@ -116,10 +126,10 @@ export default function TransactionFormModal({ isOpen, onClose, onSubmit, loadin
                     <input
                         type="text"
                         name="name"
-                        placeholder="Description (e.g., Acme Project Payment)"
+                        placeholder="Description (e.g., Website Redesign)"
                         value={formData.name}
                         onChange={handleChange}
-                        className="p-3 rounded-lg bg-[#29253b] border focus:border-[#b773f8] outline-none"
+                        className="p-3 rounded-lg bg-[#29253b] border border-[#3c3154] focus:border-[#b773f8] outline-none"
                         required
                         disabled={loading}
                     />
@@ -133,7 +143,7 @@ export default function TransactionFormModal({ isOpen, onClose, onSubmit, loadin
                             onChange={handleChange}
                             min="0.01"
                             step="0.01"
-                            className="p-3 rounded-lg bg-[#29253b] border focus:border-[#b773f8] outline-none"
+                            className="p-3 rounded-lg bg-[#29253b] border border-[#3c3154] focus:border-[#b773f8] outline-none"
                             required
                             disabled={loading}
                         />
@@ -142,7 +152,7 @@ export default function TransactionFormModal({ isOpen, onClose, onSubmit, loadin
                             name="date"
                             value={formData.date}
                             onChange={handleChange}
-                            className="p-3 rounded-lg bg-[#29253b] border focus:border-[#b773f8] outline-none"
+                            className="p-3 rounded-lg bg-[#29253b] border border-[#3c3154] focus:border-[#b773f8] outline-none"
                             required
                             disabled={loading}
                         />
@@ -153,7 +163,7 @@ export default function TransactionFormModal({ isOpen, onClose, onSubmit, loadin
                             name="type"
                             value={formData.type}
                             onChange={handleChange}
-                            className="p-3 rounded-lg bg-[#29253b] border focus:border-[#b773f8] outline-none"
+                            className="p-3 rounded-lg bg-[#29253b] border border-[#3c3154] focus:border-[#b773f8] outline-none"
                             disabled={loading}
                         >
                             <option value="income">Income</option>
@@ -164,7 +174,7 @@ export default function TransactionFormModal({ isOpen, onClose, onSubmit, loadin
                             name="category"
                             value={formData.category}
                             onChange={handleChange}
-                            className="p-3 rounded-lg bg-[#29253b] border focus:border-[#b773f8] outline-none"
+                            className="p-3 rounded-lg bg-[#29253b] border border-[#3c3154] focus:border-[#b773f8] outline-none"
                             disabled={loading}
                         >
                             {CATEGORIES[formData.type].map(cat => (
@@ -176,10 +186,10 @@ export default function TransactionFormModal({ isOpen, onClose, onSubmit, loadin
                             name="client"
                             value={formData.client}
                             onChange={handleChange}
-                            className="p-3 rounded-lg bg-[#29253b] border focus:border-[#b773f8] outline-none"
+                            className="p-3 rounded-lg bg-[#29253b] border border-[#3c3154] focus:border-[#b773f8] outline-none"
                             disabled={loading || clientsLoading}
                         >
-                            <option value="">{clientsLoading ? 'Loading Clients...' : 'Select Client (Optional)'}</option>
+                            <option value="">{clientsLoading ? 'Loading...' : 'Select Client'}</option>
                             {clients.map(client => (
                                 <option key={client._id} value={client._id}>{client.name}</option>
                             ))}
@@ -192,7 +202,7 @@ export default function TransactionFormModal({ isOpen, onClose, onSubmit, loadin
                         className="bg-[#b773f8] py-3 rounded-lg font-bold text-black hover:bg-[#a65df6] transition disabled:bg-gray-500 mt-2"
                         disabled={loading}
                     >
-                        {loading ? 'Saving Transaction...' : 'Save Transaction'}
+                        {loading ? 'Saving...' : 'Save Record'}
                     </button>
                 </form>
             </div>
